@@ -412,6 +412,15 @@
     delayMs: 110, // interpolation delay
   };
 
+  const netStats = {
+    pingSeq: 0,
+    lastSentAt: 0,
+    rttMs: 0,
+    jitterMs: 0,
+    lastRtt: 0,
+    offsetMs: 0, // refined via ping
+  };
+
   // -------- matchmaking (quick play vs real players) --------
   const mm = {
     ws: null,
@@ -464,10 +473,12 @@
     online.phase = "idle";
     online.side = "left";
     try {
+      clearInterval(online._pingTimer);
       online.ws?.close();
     } catch {
       /* ignore */
     }
+    online._pingTimer = null;
     online.ws = null;
     online.connected = false;
     if (btnCopyInvite) btnCopyInvite.disabled = true;
@@ -512,6 +523,13 @@
     }
   }
 
+  function wsPing() {
+    if (!online.ws || online.ws.readyState !== 1) return;
+    netStats.pingSeq = (netStats.pingSeq + 1) | 0;
+    netStats.lastSentAt = performance.now();
+    wsSend({ t: "ping", n: netStats.pingSeq, c: netStats.lastSentAt });
+  }
+
   function connectWs(room) {
     teardownOnline();
     online.enabled = true;
@@ -528,9 +546,17 @@
     ws.onopen = () => {
       online.connected = true;
       setOnlineStatus("Подключено · ожидание игрока…");
+      // start ping loop (browser can't read WS ping/pong frames, so we do app-level)
+      wsPing();
+      online._pingTimer = setInterval(wsPing, 500);
     };
     ws.onclose = () => {
       online.connected = false;
+      try {
+        clearInterval(online._pingTimer);
+      } catch {
+        /* ignore */
+      }
       if (online.enabled) setOnlineStatus("Соединение закрыто");
     };
     ws.onerror = () => {
@@ -555,6 +581,25 @@
         overlay.classList.remove("visible");
       } else if (msg.t === "wait") {
         online.phase = "waiting";
+      } else if (msg.t === "pong") {
+        const now = performance.now();
+        const sent = +msg.c;
+        const serverMs = +msg.s;
+        if (Number.isFinite(sent) && Number.isFinite(serverMs)) {
+          const rtt = Math.max(0, now - sent);
+          // EWMA smoothing
+          netStats.rttMs += (rtt - netStats.rttMs) * 0.15;
+          const j = Math.abs(rtt - (netStats.lastRtt || rtt));
+          netStats.jitterMs += (j - netStats.jitterMs) * 0.12;
+          netStats.lastRtt = rtt;
+          // offset: clientPerfMs - serverMs ≈ (recv - rtt/2) - serverTime
+          const off = (now - rtt * 0.5) - serverMs;
+          netStats.offsetMs += (off - netStats.offsetMs) * 0.12;
+          // use refined offset for interpolation
+          net.offsetMs += (netStats.offsetMs - net.offsetMs) * 0.25;
+          // adaptive delay: more jitter -> more delay (smoother)
+          net.delayMs = clamp(90 + netStats.jitterMs * 2.2, 90, 190);
+        }
       } else if (msg.t === "state" && msg.s) {
         applyNetState(msg.s, msg.ts);
       } else if (msg.t === "end") {
@@ -1223,6 +1268,14 @@
     ctx.fillText(profile.nickname + " · " + scorePlayer, 64, 30);
     ctx.textAlign = "right";
     ctx.fillText(opponentName + " · " + scoreAi, W - 14, 30);
+    if (online.enabled) {
+      ctx.font = "800 11px Segoe UI, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(26,39,68,0.55)";
+      ctx.textAlign = "center";
+      const rtt = Math.round(netStats.rttMs || 0);
+      const jit = Math.round(netStats.jitterMs || 0);
+      ctx.fillText(`Ping ${rtt}ms · Jit ${jit}ms`, W / 2, 42);
+    }
     ctx.textAlign = "center";
     drawStars();
     ctx.textAlign = "left";

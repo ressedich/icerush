@@ -379,6 +379,10 @@ wss.on("connection", (ws, req) => {
         msg = null;
       }
       if (!msg || typeof msg.t !== "string") return;
+      if (msg.t === "ping") {
+        send(ws, { t: "pong", n: msg.n ?? 0, c: msg.c ?? 0, s: Date.now() });
+        return;
+      }
       if (msg.t === "mm_find") {
         removeMm(ws);
         const me = { ws, id, nick, elo, seekingAt: Date.now() };
@@ -474,7 +478,12 @@ wss.on("connection", (ws, req) => {
     } catch {
       msg = null;
     }
-    if (!msg || msg.t !== "input") return;
+    if (!msg || typeof msg.t !== "string") return;
+    if (msg.t === "ping") {
+      send(ws, { t: "pong", n: msg.n ?? 0, c: msg.c ?? 0, s: Date.now() });
+      return;
+    }
+    if (msg.t !== "input") return;
     const x = +msg.x;
     const y = +msg.y;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
