@@ -487,7 +487,7 @@
 
   // Backend WebSocket URL (pin to your Deno Deploy Production URL).
   // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush-62cb6adjcczq.deno.net/ws";
+  const WS_BACKEND_URL = "wss://icerush-kk6xv15xx8qa.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
@@ -565,10 +565,6 @@
           attempt++;
           tryOne();
           return;
-        }
-        // propagate final failure
-        if (typeof onReady === "function" && !opened) {
-          // no-op; caller handles onclose for their last attempt if needed
         }
         try {
           handlers?.close?.(ev, opened, attempt, bases.length);
@@ -1771,46 +1767,48 @@
     connectWithFallback(
       "mm",
       (base) => wsMmUrlForBase(base),
-      (ws, _base, attempt, total) => {
-        mm.ws = ws;
-        searchStatus.textContent = total > 1 ? `Ищем реального игрока… (${attempt + 1}/${total})` : "Ищем реального игрока…";
-        try {
-          ws.send(JSON.stringify({ t: "mm_find", elo: profile.elo, nick: profile.nickname }));
-        } catch {
-          /* ignore */
-        }
-
-        ws.onmessage = (ev) => {
-          let msg = null;
+      {
+        attach: (ws) => {
+          ws.onmessage = (ev) => {
+            let msg = null;
+            try {
+              msg = JSON.parse(ev.data);
+            } catch {
+              msg = null;
+            }
+            if (!msg || typeof msg.t !== "string") return;
+            if (msg.t === "mm_wait") {
+              searchStatus.textContent = "Ожидание соперника…";
+            } else if (msg.t === "mm_match" && msg.room) {
+              mm.searching = false;
+              teardownMatchmaking();
+              opponentName = String(msg?.opp?.nick || "Игрок").slice(0, 12);
+              opponentElo = Number.isFinite(+msg?.opp?.elo) ? +msg.opp.elo : 0;
+              const room = String(msg.room).trim().toUpperCase().slice(0, 12);
+              setUrlToRoom(room);
+              setScreen("game");
+              overlay.innerHTML = `<div>Подключение к матчу…</div>`;
+              overlay.classList.add("visible");
+              connectWs(room);
+            }
+          };
+        },
+        open: (ws, _base, attempt, total) => {
+          mm.ws = ws;
+          searchStatus.textContent = total > 1 ? `Ищем реального игрока… (${attempt + 1}/${total})` : "Ищем реального игрока…";
           try {
-            msg = JSON.parse(ev.data);
+            ws.send(JSON.stringify({ t: "mm_find", elo: profile.elo, nick: profile.nickname }));
           } catch {
-            msg = null;
+            /* ignore */
           }
-          if (!msg || typeof msg.t !== "string") return;
-          if (msg.t === "mm_wait") {
-            searchStatus.textContent = "Ожидание соперника…";
-          } else if (msg.t === "mm_match" && msg.room) {
-            mm.searching = false;
-            teardownMatchmaking();
-            opponentName = String(msg?.opp?.nick || "Игрок").slice(0, 12);
-            opponentElo = Number.isFinite(+msg?.opp?.elo) ? +msg.opp.elo : 0;
-            const room = String(msg.room).trim().toUpperCase().slice(0, 12);
-            setUrlToRoom(room);
-            setScreen("game");
-            overlay.innerHTML = `<div>Подключение к матчу…</div>`;
-            overlay.classList.add("visible");
-            connectWs(room);
-          }
-        };
-
-        ws.onclose = (ev) => {
+        },
+        close: (ev) => {
           if (!mm.searching) return;
           searchStatus.textContent = `Соединение закрыто (матчмейкинг) · ${ev.code || 0}`;
           teardownMatchmaking();
           btnSearchPlayers && (btnSearchPlayers.disabled = false);
           btnSearchBots && (btnSearchBots.disabled = false);
-        };
+        },
       }
     );
   }
