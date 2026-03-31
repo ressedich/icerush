@@ -63,16 +63,17 @@
   const profMatches = document.getElementById("profMatches");
   const profWins = document.getElementById("profWins");
   const achList = document.getElementById("achList");
+  const nickInput = document.getElementById("nickInput");
+  const btnSaveNick = document.getElementById("btnSaveNick");
 
   // online ui
   const myCodeView = document.getElementById("myCodeView");
+  const myLinkView = document.getElementById("myLinkView");
   const onlineStatus = document.getElementById("onlineStatus");
   const onlineHint = document.getElementById("onlineHint");
-  const btnCreateRoom = document.getElementById("btnCreateRoom");
-  const btnJoinRoom = document.getElementById("btnJoinRoom");
+  const btnOpenMatch = document.getElementById("btnOpenMatch");
   const btnCopyInvite = document.getElementById("btnCopyInvite");
   const btnBackFromOnline = document.getElementById("btnBackFromOnline");
-  const joinCode = document.getElementById("joinCode");
 
   const W = LOGICAL_W;
   const H = LOGICAL_H;
@@ -123,7 +124,7 @@
       if (raw) {
         const p = JSON.parse(raw);
         return {
-          nickname: typeof p.nickname === "string" && p.nickname.trim() ? p.nickname.trim().slice(0, 16) : "Игрок",
+          nickname: typeof p.nickname === "string" && p.nickname.trim() ? p.nickname.trim().slice(0, 12) : "Игрок",
           elo: Math.max(0, Math.min(4000, parseInt(p.elo, 10) || 0)),
           matches: parseInt(p.matches, 10) || 0,
           wins: parseInt(p.wins, 10) || 0,
@@ -361,6 +362,7 @@
     pollTimer: 0,
     sendAcc: 0,
     inputRemote: { x: inner.right - 150, y: H / 2, t: 0 },
+    phase: "idle", // idle | waiting | playing
   };
 
   function setOnlineStatus(txt) {
@@ -398,6 +400,7 @@
     online.pollAfter = 0;
     online.sendAcc = 0;
     online.inputRemote = { x: inner.right - 150, y: H / 2, t: 0 };
+    online.phase = "idle";
     try {
       online.dc?.close();
     } catch {
@@ -415,6 +418,7 @@
     online.dc = null;
     online.pc = null;
     if (btnCopyInvite) btnCopyInvite.disabled = true;
+    if (btnOpenMatch) btnOpenMatch.disabled = true;
   }
 
   async function apiCreateRoom() {
@@ -440,6 +444,7 @@
     u.searchParams.set("code", code);
     u.searchParams.set("clientId", clientId);
     u.searchParams.set("after", String(after || 0));
+    u.searchParams.set("includeSelf", "1");
     const r = await fetch(u.toString(), { method: "GET", cache: "no-store" });
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.error || "poll failed");
@@ -560,7 +565,10 @@
     opponentElo = 0;
     opponentSpeed = 0;
     aiMode = "neutral";
-    resetMatch();
+    if (online.role === "host") {
+      resetMatch();
+    }
+    online.phase = "playing";
     paused = false;
     lastTs = 0;
     setScreen("game");
@@ -885,6 +893,8 @@
   }
 
   function updatePlayer() {
+    // waiting via link: show match but freeze control
+    if (online.enabled && online.phase === "waiting") return;
     const s = localSide();
     const me = getLocalStriker();
     const target = clampStrikerSide(s, mouse.x, mouse.y);
@@ -1164,7 +1174,9 @@
     // local = red, remote = blue
     const me = getLocalStriker();
     const other = getRemoteStriker();
-    drawStriker(other, "#1a4d8c");
+    if (!(online.enabled && online.phase === "waiting")) {
+      drawStriker(other, "#1a4d8c");
+    }
     drawStriker(me, "#d42c3a");
     drawHud();
   }
@@ -1244,22 +1256,158 @@
 
   btnProfile.addEventListener("click", () => {
     updateMenuUi();
+    if (nickInput) nickInput.value = profile.nickname || "";
     setScreen("profile");
+  });
+
+  btnSaveNick?.addEventListener("click", () => {
+    const nm = (nickInput?.value || "").trim().slice(0, 12);
+    if (!nm) return;
+    profile.nickname = nm;
+    saveProfile();
+    updateMenuUi();
   });
   btnBackFromProfile.addEventListener("click", () => {
     setScreen("menu");
   });
 
-  btnOnline?.addEventListener("click", () => {
+  function roomLink(code) {
+    return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
+  }
+
+  async function ensurePersonalRoom() {
+    const key = "ice_rush_personal_room_v1";
+    let code = "";
+    try {
+      code = (localStorage.getItem(key) || "").trim().toUpperCase();
+    } catch {
+      code = "";
+    }
+    if (!code) {
+      code = await apiCreateRoom();
+      try {
+        localStorage.setItem(key, code);
+      } catch {
+        /* ignore */
+      }
+    }
+    return code;
+  }
+
+  function setUrlToRoom(code) {
+    const u = new URL(window.location.href);
+    u.searchParams.set("room", code);
+    history.pushState(null, "", u.toString());
+  }
+
+  function clearRoomFromUrl() {
+    const u = new URL(window.location.href);
+    u.searchParams.delete("room");
+    history.replaceState(null, "", u.toString());
+  }
+
+  async function joinByLink(code) {
+    // show empty match and wait for second player
+    teardownOnline();
+    online.enabled = true;
+    online.code = code;
+    online.phase = "waiting";
+    puck.x = W / 2;
+    puck.y = H / 2;
+    puck.vx = 0;
+    puck.vy = 0;
+    player.x = inner.left + 150;
+    player.y = H / 2;
+    ai.x = inner.right - 150;
+    ai.y = H / 2;
+    paused = true;
+    overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:#2d7cc9">Ссылка: ${code}</div><button class="btn btn-ghost" id="btnCancelWait" style="max-width:240px">В меню</button>`;
+    overlay.classList.add("visible");
+    document.getElementById("btnCancelWait").onclick = () => {
+      overlay.classList.remove("visible");
+      teardownOnline();
+      clearRoomFromUrl();
+      setScreen("menu");
+    };
+    setScreen("game");
+
+    // leader election via claim messages
+    const claimPayload = { clientId };
+    let claimed = false;
+    let hostClientId = "";
+
+    const decideRoleFrom = (messages) => {
+      const claims = (messages || []).filter((m) => m.type === "claim" && m.payload?.clientId);
+      if (!claims.length) return "";
+      claims.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+      return String(claims[0].payload.clientId);
+    };
+
+    if (online.pollTimer) clearInterval(online.pollTimer);
+    online.pollAfter = 0;
+    online.pollTimer = setInterval(async () => {
+      try {
+        const res = await apiPoll(code, online.pollAfter);
+        online.pollAfter = Math.max(online.pollAfter, res.seq || 0);
+        hostClientId = decideRoleFrom(res.messages);
+        if (!hostClientId && !claimed) {
+          claimed = true;
+          await apiSend(code, "claim", claimPayload);
+          return;
+        }
+
+        if (!hostClientId) return;
+        const shouldBeHost = hostClientId === clientId;
+        if (!online.pc) setupPeer(shouldBeHost ? "host" : "guest");
+        online.code = code;
+
+        // host: create offer once
+        if (shouldBeHost && !online.pc.localDescription) {
+          const offer = await online.pc.createOffer();
+          await online.pc.setLocalDescription(offer);
+          await apiSend(code, "offer", offer);
+          setOnlineStatus("Ссылка активна · ждём подключения…");
+        }
+
+        // handle signaling messages
+        for (const m of res.messages || []) {
+          if (m.type === "offer" && !shouldBeHost && !online.pc.currentRemoteDescription) {
+            await online.pc.setRemoteDescription(m.payload);
+            const ans = await online.pc.createAnswer();
+            await online.pc.setLocalDescription(ans);
+            await apiSend(code, "answer", ans);
+          } else if (m.type === "answer" && shouldBeHost) {
+            if (!online.pc.currentRemoteDescription) await online.pc.setRemoteDescription(m.payload);
+          } else if (m.type === "ice") {
+            try {
+              await online.pc.addIceCandidate(m.payload);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 650);
+  }
+
+  btnOnline?.addEventListener("click", async () => {
     if (myCodeView) myCodeView.textContent = clientId;
-    setOnlineStatus("Оффлайн");
-    if (btnCopyInvite) btnCopyInvite.disabled = true;
+    setOnlineStatus("Готовим ссылку…");
     setScreen("online");
-    const url = new URL(window.location.href);
-    const room = (url.searchParams.get("room") || "").trim().toUpperCase();
-    if (room && joinCode) {
-      joinCode.value = room;
-      setOnlineStatus("Код из ссылки найден · нажмите Войти");
+    if (btnCopyInvite) btnCopyInvite.disabled = true;
+    if (btnOpenMatch) btnOpenMatch.disabled = true;
+    try {
+      const code = await ensurePersonalRoom();
+      const link = roomLink(code);
+      if (myLinkView) myLinkView.textContent = link;
+      if (btnCopyInvite) btnCopyInvite.disabled = false;
+      if (btnOpenMatch) btnOpenMatch.disabled = false;
+      online.invite = link;
+      setOnlineStatus("Ссылка готова");
+    } catch {
+      setOnlineStatus("Ошибка создания ссылки");
     }
   });
 
@@ -1268,44 +1416,13 @@
     setScreen("menu");
   });
 
-  btnCreateRoom?.addEventListener("click", async () => {
+  btnOpenMatch?.addEventListener("click", async () => {
     try {
-      setOnlineStatus("Создаём комнату…");
-      const code = await apiCreateRoom();
-      if (joinCode) joinCode.value = code;
-      setOnlineStatus(`Комната создана: ${code} · ждём друга…`);
-      setupPeer("host");
-      online.code = code;
-      online.invite = `${window.location.origin}${window.location.pathname}?room=${code}`;
-      if (btnCopyInvite) btnCopyInvite.disabled = false;
-      const offer = await online.pc.createOffer();
-      await online.pc.setLocalDescription(offer);
-      await apiSend(code, "offer", offer);
-      online.pollAfter = 0;
-      if (online.pollTimer) clearInterval(online.pollTimer);
-      online.pollTimer = setInterval(async () => {
-        try {
-          const res = await apiPoll(code, online.pollAfter);
-          online.pollAfter = Math.max(online.pollAfter, res.seq || 0);
-          for (const m of res.messages || []) {
-            if (m.type === "answer") {
-              await online.pc.setRemoteDescription(m.payload);
-              setOnlineStatus("Ответ получен · соединяемся…");
-            } else if (m.type === "ice") {
-              try {
-                await online.pc.addIceCandidate(m.payload);
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      }, 650);
+      const code = await ensurePersonalRoom();
+      setUrlToRoom(code);
+      await joinByLink(code);
     } catch {
-      teardownOnline();
-      setOnlineStatus("Ошибка создания комнаты");
+      setOnlineStatus("Ошибка открытия матча");
     }
   });
 
@@ -1313,44 +1430,6 @@
     if (!online.invite) return;
     const ok = await copyText(online.invite);
     if (ok) setOnlineStatus("Инвайт скопирован. Отправьте другу ссылку.");
-  });
-
-  btnJoinRoom?.addEventListener("click", async () => {
-    const code = (joinCode?.value || "").trim().toUpperCase().slice(0, 12);
-    if (!code) return;
-    try {
-      setOnlineStatus("Подключаемся…");
-      setupPeer("guest");
-      online.code = code;
-      online.pollAfter = 0;
-      if (online.pollTimer) clearInterval(online.pollTimer);
-      online.pollTimer = setInterval(async () => {
-        try {
-          const res = await apiPoll(code, online.pollAfter);
-          online.pollAfter = Math.max(online.pollAfter, res.seq || 0);
-          for (const m of res.messages || []) {
-            if (m.type === "offer" && !online.pc.currentRemoteDescription) {
-              await online.pc.setRemoteDescription(m.payload);
-              const ans = await online.pc.createAnswer();
-              await online.pc.setLocalDescription(ans);
-              await apiSend(code, "answer", ans);
-              setOnlineStatus("Оффер получен · отправили ответ…");
-            } else if (m.type === "ice") {
-              try {
-                await online.pc.addIceCandidate(m.payload);
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      }, 650);
-    } catch {
-      teardownOnline();
-      setOnlineStatus("Ошибка подключения");
-    }
   });
 
   btnFind.addEventListener("click", async () => {
@@ -1399,7 +1478,14 @@
   // init
   let profile = loadProfile();
   updateMenuUi();
-  setScreen("menu");
+  const url0 = new URL(window.location.href);
+  const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
+  if (room0) {
+    // direct link opens waiting match automatically
+    joinByLink(room0);
+  } else {
+    setScreen("menu");
+  }
   requestAnimationFrame(step);
   } catch (e) {
     console.error("Ice Rush init failed:", e);

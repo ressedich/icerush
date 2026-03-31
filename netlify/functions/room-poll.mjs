@@ -16,6 +16,7 @@ export default async (req) => {
   const code = safeStr(url.searchParams.get("code"), 12).toUpperCase();
   const clientId = safeStr(url.searchParams.get("clientId"), 64);
   const after = parseInt(url.searchParams.get("after") || "0", 10) || 0;
+  const includeSelf = safeStr(url.searchParams.get("includeSelf"), 8) === "1";
 
   if (!code || !clientId) {
     return new Response(JSON.stringify({ ok: false, error: "Missing code/clientId" }), {
@@ -35,7 +36,9 @@ export default async (req) => {
   }
 
   const msgs = Array.isArray(room.messages) ? room.messages : [];
-  const out = msgs.filter((m) => (m?.seq || 0) > after && m.from !== clientId);
+  const out = includeSelf
+    ? msgs.filter((m) => (m?.seq || 0) > after)
+    : msgs.filter((m) => (m?.seq || 0) > after && m.from !== clientId);
 
   return new Response(JSON.stringify({ ok: true, seq: room.seq || 0, messages: out }), {
     status: 200,

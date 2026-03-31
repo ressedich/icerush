@@ -91,6 +91,13 @@
                   <div class="value" id="profWins">0</div>
                 </div>
               </div>
+              <div class="field" style="margin-top:12px">
+                <div class="label">Сменить ник</div>
+                <div class="inline">
+                  <input class="input" id="nickInput" placeholder="Новый ник" maxlength="12" />
+                  <button class="btn btn-ghost" id="btnSaveNick" style="max-width:160px">Сохранить</button>
+                </div>
+              </div>
               <div style="margin-top:12px">
                 <div class="label">Достижения</div>
                 <ul class="ach-list" id="achList"></ul>
@@ -105,7 +112,7 @@
         <section id="online" class="screen">
           <div class="panel">
             <h2 class="title small">Онлайн 1v1</h2>
-            <p class="subtitle">Создайте комнату и отправьте код другу или зайдите по коду</p>
+            <p class="subtitle">Одна ссылка — один матч. Игра начнётся, когда второй игрок перейдёт по вашей ссылке</p>
             <div class="card">
               <div class="row">
                 <div>
@@ -118,21 +125,18 @@
                 </div>
               </div>
 
-              <div class="actions" style="margin-top:12px">
-                <button class="btn btn-accent" id="btnCreateRoom">Создать комнату</button>
-                <button class="btn btn-ghost" id="btnCopyInvite" disabled>Скопировать инвайт</button>
+              <div class="field" style="margin-top:12px">
+                <div class="label">Ваша ссылка</div>
+                <div class="value" id="myLinkView" style="word-break:break-all">—</div>
               </div>
 
-              <div class="field" style="margin-top:12px">
-                <div class="label">Войти по коду</div>
-                <div class="inline">
-                  <input class="input" id="joinCode" placeholder="Напр. Q7K2M9" maxlength="12" />
-                  <button class="btn btn-ghost" id="btnJoinRoom" style="max-width:160px">Войти</button>
-                </div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-accent" id="btnOpenMatch" disabled>Открыть матч</button>
+                <button class="btn btn-ghost" id="btnCopyInvite" disabled>Скопировать ссылку</button>
               </div>
 
               <div class="howto" id="onlineHint" style="margin-top:10px">
-                Подсказка: создайте комнату, скопируйте инвайт и отправьте другу. Второй игрок входит по коду или по ссылке.
+                Подсказка: откройте матч по своей ссылке — появится пустое поле ожидания. Когда друг зайдёт по этой же ссылке, матч начнётся.
               </div>
 
               <div class="actions" style="margin-top:12px">
