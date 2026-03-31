@@ -77,6 +77,9 @@
   const btnOpenMatch = document.getElementById("btnOpenMatch");
   const btnCopyInvite = document.getElementById("btnCopyInvite");
   const btnBackFromOnline = document.getElementById("btnBackFromOnline");
+  const wsUrlInput = document.getElementById("wsUrlInput");
+  const btnSaveWs = document.getElementById("btnSaveWs");
+  const wsDiag = document.getElementById("wsDiag");
 
   // kings ui
   const kingsUpdated = document.getElementById("kingsUpdated");
@@ -452,6 +455,45 @@
   // Configure your backend WS URL after deploy
   // Example: wss://ice-rush-ws.onrender.com/ws
   const WS_BACKEND_URL = "wss://icerush-ws.onrender.com/ws";
+  const WS_URL_KEY = "ice_rush_ws_url_v1";
+
+  function getBackendUrl() {
+    let saved = "";
+    try {
+      saved = (localStorage.getItem(WS_URL_KEY) || "").trim();
+    } catch {
+      saved = "";
+    }
+    const u = saved || WS_BACKEND_URL;
+    return u;
+  }
+
+  function setWsDiag(txt) {
+    if (wsDiag) wsDiag.textContent = String(txt || "");
+  }
+
+  function httpHealthUrlFromWs(wsUrlStr) {
+    // Convert ws(s)://host/path -> http(s)://host/health
+    const u = new URL(wsUrlStr);
+    u.protocol = u.protocol === "wss:" ? "https:" : "http:";
+    u.pathname = "/health";
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  }
+
+  async function probeBackend() {
+    try {
+      const wsU = getBackendUrl();
+      const health = httpHealthUrlFromWs(wsU);
+      const r = await fetch(health, { cache: "no-store" });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j && j.ok) setWsDiag(`OK: ${health}`);
+      else setWsDiag(`Не отвечает: ${health}`);
+    } catch {
+      setWsDiag("Диагностика недоступна");
+    }
+  }
 
   function randRoom(len = 6) {
     const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -461,7 +503,7 @@
   }
 
   function wsUrl(room) {
-    const u = new URL(WS_BACKEND_URL);
+    const u = new URL(getBackendUrl());
     u.searchParams.set("room", room);
     u.searchParams.set("clientId", clientId);
     u.searchParams.set("nick", profile.nickname || "Игрок");
@@ -1366,6 +1408,9 @@
     if (myCodeView) myCodeView.textContent = clientId;
     setOnlineStatus("Готовим ссылку…");
     setScreen("online");
+    if (wsUrlInput) wsUrlInput.value = getBackendUrl();
+    setWsDiag(`Сейчас: ${getBackendUrl()}`);
+    probeBackend();
     if (btnCopyInvite) btnCopyInvite.disabled = true;
     if (btnOpenMatch) btnOpenMatch.disabled = true;
     try {
@@ -1379,6 +1424,20 @@
       setOnlineStatus("Ссылка готова");
     } catch {
       setOnlineStatus("Ошибка создания ссылки");
+    }
+  });
+
+  btnSaveWs?.addEventListener("click", async () => {
+    const raw = (wsUrlInput?.value || "").trim();
+    try {
+      // validate
+      const u = new URL(raw);
+      if (!(u.protocol === "ws:" || u.protocol === "wss:")) throw new Error("bad proto");
+      localStorage.setItem(WS_URL_KEY, u.toString());
+      setWsDiag(`Сохранено: ${u.toString()}`);
+      await probeBackend();
+    } catch {
+      setWsDiag("Неверный адрес. Пример: wss://example.com/ws");
     }
   });
 
