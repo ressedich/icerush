@@ -385,7 +385,6 @@
   // -------- online 1v1 (WebRTC P2P + Netlify signaling) --------
   const online = {
     enabled: false,
-    role: "none", // host | guest | none
     code: "",
     invite: "",
     pc: null,
@@ -395,6 +394,10 @@
     sendAcc: 0,
     inputRemote: { x: inner.right - 150, y: H / 2, t: 0 },
     phase: "idle", // idle | waiting | playing
+    peerId: "", // other client's id
+    side: "left", // left | right (left is authoritative)
+    helloSent: false,
+    offerSent: false,
   };
 
   function setOnlineStatus(txt) {
@@ -404,7 +407,7 @@
 
   function localSide() {
     if (!online.enabled) return "left";
-    return online.role === "guest" ? "right" : "left";
+    return online.side;
   }
 
   function remoteSide() {
@@ -426,13 +429,16 @@
 
   function teardownOnline() {
     online.enabled = false;
-    online.role = "none";
     online.code = "";
     online.invite = "";
     online.pollAfter = 0;
     online.sendAcc = 0;
     online.inputRemote = { x: inner.right - 150, y: H / 2, t: 0 };
     online.phase = "idle";
+    online.peerId = "";
+    online.side = "left";
+    online.helloSent = false;
+    online.offerSent = false;
     try {
       online.dc?.close();
     } catch {
@@ -483,10 +489,22 @@
     return j;
   }
 
-  function setupPeer(role) {
+  function setPeerIdFrom(messages) {
+    for (const m of messages || []) {
+      const from = String(m?.from || "");
+      if (from && from !== clientId) return from;
+    }
+    return "";
+  }
+
+  function decideSides(peerId) {
+    // deterministic: smaller id is left/authoritative
+    online.side = clientId < peerId ? "left" : "right";
+  }
+
+  function setupPeer() {
     teardownOnline();
     online.enabled = true;
-    online.role = role;
     online.pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
@@ -495,15 +513,10 @@
         apiSend(online.code, "ice", e.candidate).catch(() => {});
       }
     };
-    if (role === "host") {
-      online.dc = online.pc.createDataChannel("game", { ordered: true });
+    online.pc.ondatachannel = (e) => {
+      online.dc = e.channel;
       wireDataChannel();
-    } else {
-      online.pc.ondatachannel = (e) => {
-        online.dc = e.channel;
-        wireDataChannel();
-      };
-    }
+    };
   }
 
   function wireDataChannel() {
@@ -523,15 +536,15 @@
       }
       if (!msg || typeof msg.t !== "string") return;
       if (msg.t === "input") {
-        if (online.role === "host" && msg.x != null && msg.y != null) {
+        if (online.enabled && online.side === "left" && msg.x != null && msg.y != null) {
           online.inputRemote.x = +msg.x;
           online.inputRemote.y = +msg.y;
           online.inputRemote.t = Date.now();
         }
       } else if (msg.t === "state") {
-        if (online.role === "guest" && msg.s) applyNetState(msg.s);
+        if (online.enabled && online.side === "right" && msg.s) applyNetState(msg.s);
       } else if (msg.t === "end") {
-        if (online.role === "guest") {
+        if (online.enabled && online.side === "right") {
           paused = true;
           showOnlineEnd(!!msg?.win);
         }
@@ -593,11 +606,11 @@
   }
 
   function startOnlineMatch() {
-    opponentName = online.role === "host" ? "Гость" : "Хост";
+    opponentName = online.side === "left" ? "Гость" : "Хост";
     opponentElo = 0;
     opponentSpeed = 0;
     aiMode = "neutral";
-    if (online.role === "host") {
+    if (online.side === "left") {
       resetMatch();
     }
     online.phase = "playing";
@@ -1347,73 +1360,54 @@
     };
     setScreen("game");
 
-    // leader election via claim messages (stable: keep best claim ever seen)
-    const claimPayload = { clientId };
-    let bestClaimSeq = Infinity;
-    let bestClaimClientId = "";
-    let claimSent = false;
-    let offerSent = false;
-
-    const ingestClaims = (messages) => {
-      for (const m of messages || []) {
-        if (m?.type !== "claim") continue;
-        const cid = m?.payload?.clientId;
-        const seq = +m?.seq || 0;
-        if (!cid || !seq) continue;
-        if (seq < bestClaimSeq) {
-          bestClaimSeq = seq;
-          bestClaimClientId = String(cid);
-        }
-      }
-    };
+    // real online: both send hello; once peerId is known, deterministic initiator sends offer
+    online.peerId = "";
+    online.helloSent = false;
+    online.offerSent = false;
 
     if (online.pollTimer) clearInterval(online.pollTimer);
     online.pollAfter = 0;
-    // send our claim immediately (repeat once on failure)
+    // send hello immediately (and retry until peer is discovered)
     try {
-      await apiSend(code, "claim", claimPayload);
-      claimSent = true;
+      await apiSend(code, "hello", { clientId });
+      online.helloSent = true;
     } catch {
-      claimSent = false;
+      online.helloSent = false;
     }
     online.pollTimer = setInterval(async () => {
       try {
         const res = await apiPoll(code, online.pollAfter);
         online.pollAfter = Math.max(online.pollAfter, res.seq || 0);
-        ingestClaims(res.messages);
-        if (!bestClaimClientId) {
-          // occasionally re-send claim if initial send failed
-          if (!claimSent) {
-            try {
-              await apiSend(code, "claim", claimPayload);
-              claimSent = true;
-            } catch {
-              /* ignore */
+        // discover peer
+        if (!online.peerId) {
+          const pid = setPeerIdFrom(res.messages);
+          if (pid) {
+            online.peerId = pid;
+            decideSides(pid);
+            setOnlineStatus("Соперник найден · соединяемся…");
+            if (!online.pc) setupPeer();
+          } else {
+            // retry hello occasionally
+            if (!online.helloSent) {
+              try {
+                await apiSend(code, "hello", { clientId });
+                online.helloSent = true;
+              } catch {
+                /* ignore */
+              }
             }
           }
-          return;
-        }
-        const shouldBeHost = bestClaimClientId === clientId;
-        if (!online.pc) setupPeer(shouldBeHost ? "host" : "guest");
-        online.code = code;
-
-        // host: create offer once
-        if (shouldBeHost && !offerSent && !online.pc.localDescription) {
-          const offer = await online.pc.createOffer();
-          await online.pc.setLocalDescription(offer);
-          await apiSend(code, "offer", offer);
-          offerSent = true;
-          setOnlineStatus("Ссылка активна · ждём подключения…");
         }
 
         // handle signaling messages
         for (const m of res.messages || []) {
-          if (m.type === "offer" && !shouldBeHost && !online.pc.currentRemoteDescription) {
+          if (!online.pc) continue;
+          if (m.type === "offer" && online.side === "right" && !online.pc.currentRemoteDescription) {
             await online.pc.setRemoteDescription(m.payload);
             const ans = await online.pc.createAnswer();
             await online.pc.setLocalDescription(ans);
             await apiSend(code, "answer", ans);
-          } else if (m.type === "answer" && shouldBeHost) {
+          } else if (m.type === "answer" && online.side === "left") {
             if (!online.pc.currentRemoteDescription) await online.pc.setRemoteDescription(m.payload);
           } else if (m.type === "ice") {
             try {
@@ -1422,6 +1416,20 @@
               /* ignore */
             }
           }
+        }
+
+        // initiator (left) sends offer once when peer exists
+        if (online.peerId && online.side === "left" && !online.offerSent && online.pc && !online.pc.localDescription) {
+          // ensure we have a datachannel for gameplay
+          if (!online.dc) {
+            online.dc = online.pc.createDataChannel("game", { ordered: true });
+            wireDataChannel();
+          }
+          const offer = await online.pc.createOffer();
+          await online.pc.setLocalDescription(offer);
+          await apiSend(code, "offer", offer);
+          online.offerSent = true;
+          setOnlineStatus("Оффер отправлен · ждём ответ…");
         }
       } catch {
         /* ignore */
