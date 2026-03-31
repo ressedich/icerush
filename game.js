@@ -408,7 +408,7 @@
   // Snapshot interpolation buffer (render slightly in the past)
   const net = {
     buf: [], // { ts:number(ms server), s:state, recv:number(ms perf) }
-    offsetMs: 0, // clientPerfMs - serverMs (estimated)
+    offsetMs: 0, // clientEpochMs - serverEpochMs (estimated)
     delayMs: 110, // interpolation delay
   };
 
@@ -487,7 +487,7 @@
 
   // Backend WebSocket URL (pin to your Deno Deploy Production URL).
   // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush-jzc125wj4gg3.ressedich.deno.net/ws";
+  const WS_BACKEND_URL = "wss://icerush-tta23r84ts3e.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
@@ -629,7 +629,8 @@
   function wsPing() {
     if (!online.ws || online.ws.readyState !== 1) return;
     netStats.pingSeq = (netStats.pingSeq + 1) | 0;
-    netStats.lastSentAt = performance.now();
+    // Use epoch time to match server Date.now()
+    netStats.lastSentAt = Date.now();
     wsSend({ t: "ping", n: netStats.pingSeq, c: netStats.lastSentAt });
   }
 
@@ -670,7 +671,8 @@
         } else if (msg.t === "wait") {
           online.phase = "waiting";
         } else if (msg.t === "pong") {
-          const now = performance.now();
+          // Use epoch time to match server Date.now()
+          const now = Date.now();
           const sent = +msg.c;
           const serverMs = +msg.s;
           if (Number.isFinite(sent) && Number.isFinite(serverMs)) {
@@ -756,7 +758,7 @@
     netTarget.recvAt = netTarget.t;
 
     // snapshot buffer for time-based interpolation
-    const recv = performance.now();
+    const recv = Date.now();
     const ts = Number.isFinite(+serverTs) ? +serverTs : Date.now();
     const sampleOffset = recv - ts;
     net.offsetMs += (sampleOffset - net.offsetMs) * 0.08;
@@ -1449,8 +1451,10 @@
         goalCheck();
       } else {
         // time-based interpolation: render slightly in the past for smoothness
-        const now = performance.now();
-        const targetServerTime = now - net.offsetMs - net.delayMs;
+        // Render server time using epoch clock to avoid seconds of lag
+        // (server sends Date.now() timestamps).
+        const now = Date.now();
+        const targetServerTime = (now - net.offsetMs) - net.delayMs;
 
         if (net.buf.length >= 2) {
           // find snapshots around targetServerTime
