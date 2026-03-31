@@ -487,7 +487,7 @@
 
   // Backend WebSocket URL (pin to your Deno Deploy Production URL).
   // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush.ressedich.deno.net/ws";
+  const WS_BACKEND_URL = "wss://icerush-jzc125wj4gg3.ressedich.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
