@@ -390,22 +390,17 @@
   let lastPuckY = puck.y;
   let stuckT = 0;
 
-  // -------- online 1v1 (WebRTC P2P + Netlify signaling) --------
+  // -------- online 1v1 (WebSocket backend, 100%) --------
   const online = {
     enabled: false,
     code: "",
     invite: "",
-    pc: null,
-    dc: null,
-    pollAfter: 0,
-    pollTimer: 0,
     sendAcc: 0,
     inputRemote: { x: inner.right - 150, y: H / 2, t: 0 },
     phase: "idle", // idle | waiting | playing
-    peerId: "", // other client's id
-    side: "left", // left | right (left is authoritative)
-    helloSent: false,
-    offerSent: false,
+    side: "left", // left | right
+    ws: null,
+    connected: false,
   };
 
   function setOnlineStatus(txt) {
@@ -439,135 +434,104 @@
     online.enabled = false;
     online.code = "";
     online.invite = "";
-    online.pollAfter = 0;
     online.sendAcc = 0;
     online.inputRemote = { x: inner.right - 150, y: H / 2, t: 0 };
     online.phase = "idle";
-    online.peerId = "";
     online.side = "left";
-    online.helloSent = false;
-    online.offerSent = false;
     try {
-      online.dc?.close();
+      online.ws?.close();
     } catch {
       /* ignore */
     }
-    try {
-      online.pc?.close();
-    } catch {
-      /* ignore */
-    }
-    if (online.pollTimer) {
-      clearInterval(online.pollTimer);
-      online.pollTimer = 0;
-    }
-    online.dc = null;
-    online.pc = null;
+    online.ws = null;
+    online.connected = false;
     if (btnCopyInvite) btnCopyInvite.disabled = true;
     if (btnOpenMatch) btnOpenMatch.disabled = true;
   }
 
-  async function apiCreateRoom() {
-    const r = await fetch("/.netlify/functions/room-create", { method: "POST" });
-    const j = await r.json();
-    if (!j?.ok || !j?.code) throw new Error(j?.error || "create failed");
-    return String(j.code).toUpperCase();
+  // Configure your backend WS URL after deploy
+  // Example: wss://ice-rush-ws.onrender.com/ws
+  const WS_BACKEND_URL = "wss://YOUR_BACKEND_HOST/ws";
+
+  function randRoom(len = 6) {
+    const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let s = "";
+    for (let i = 0; i < len; i++) s += abc[(Math.random() * abc.length) | 0];
+    return s;
   }
 
-  async function apiSend(code, type, payload) {
-    const r = await fetch("/.netlify/functions/room-send", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, clientId, type, payload }),
-    });
-    const j = await r.json();
-    if (!j?.ok) throw new Error(j?.error || "send failed");
-    return j.seq || 0;
-  }
-
-  async function apiPoll(code, after) {
-    const u = new URL("/.netlify/functions/room-poll", window.location.origin);
-    u.searchParams.set("code", code);
+  function wsUrl(room) {
+    const u = new URL(WS_BACKEND_URL);
+    u.searchParams.set("room", room);
     u.searchParams.set("clientId", clientId);
-    u.searchParams.set("after", String(after || 0));
-    u.searchParams.set("includeSelf", "1");
-    const r = await fetch(u.toString(), { method: "GET", cache: "no-store" });
-    const j = await r.json();
-    if (!j?.ok) throw new Error(j?.error || "poll failed");
-    return j;
+    u.searchParams.set("nick", profile.nickname || "Игрок");
+    u.searchParams.set("elo", String(profile.elo || 0));
+    return u.toString();
   }
 
-  function setPeerIdFrom(messages) {
-    for (const m of messages || []) {
-      const from = String(m?.from || "");
-      if (from && from !== clientId) return from;
+  function wsSend(obj) {
+    try {
+      if (online.ws && online.ws.readyState === 1) online.ws.send(JSON.stringify(obj));
+    } catch {
+      /* ignore */
     }
-    return "";
   }
 
-  function decideSides(peerId) {
-    // deterministic: smaller id is left/authoritative
-    online.side = clientId < peerId ? "left" : "right";
-  }
-
-  function setupPeer() {
+  function connectWs(room) {
     teardownOnline();
     online.enabled = true;
-    online.pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-    online.pc.onicecandidate = (e) => {
-      if (e.candidate && online.code) {
-        apiSend(online.code, "ice", e.candidate).catch(() => {});
-      }
-    };
-    online.pc.ondatachannel = (e) => {
-      online.dc = e.channel;
-      wireDataChannel();
-    };
-  }
+    online.code = room;
+    online.invite = roomLink(room);
+    online.phase = "waiting";
+    online.connected = false;
+    if (btnCopyInvite) btnCopyInvite.disabled = false;
 
-  function wireDataChannel() {
-    if (!online.dc) return;
-    online.dc.onopen = () => {
-      setOnlineStatus("Подключено · стартуем матч");
-      startOnlineMatch();
+    const ws = new WebSocket(wsUrl(room));
+    online.ws = ws;
+    setOnlineStatus("Подключаемся к серверу…");
+
+    ws.onopen = () => {
+      online.connected = true;
+      setOnlineStatus("Подключено · ожидание игрока…");
     };
-    online.dc.onclose = () => setOnlineStatus("Канал закрыт");
-    online.dc.onerror = () => setOnlineStatus("Ошибка канала");
-    online.dc.onmessage = (e) => {
+    ws.onclose = () => {
+      online.connected = false;
+      if (online.enabled) setOnlineStatus("Соединение закрыто");
+    };
+    ws.onerror = () => {
+      online.connected = false;
+      if (online.enabled) setOnlineStatus("Ошибка соединения");
+    };
+    ws.onmessage = (ev) => {
       let msg = null;
       try {
-        msg = JSON.parse(e.data);
+        msg = JSON.parse(ev.data);
       } catch {
         msg = null;
       }
       if (!msg || typeof msg.t !== "string") return;
-      if (msg.t === "input") {
-        if (online.enabled && online.side === "left" && msg.x != null && msg.y != null) {
-          online.inputRemote.x = +msg.x;
-          online.inputRemote.y = +msg.y;
-          online.inputRemote.t = Date.now();
-        }
-      } else if (msg.t === "state") {
-        if (online.enabled && online.side === "right" && msg.s) applyNetState(msg.s);
+      if (msg.t === "side") {
+        online.side = msg.side === "right" ? "right" : "left";
+      } else if (msg.t === "ready") {
+        setOnlineStatus("Игрок найден · старт!");
+        online.phase = "playing";
+        paused = false;
+        lastTs = 0;
+        overlay.classList.remove("visible");
+      } else if (msg.t === "wait") {
+        online.phase = "waiting";
+      } else if (msg.t === "state" && msg.s) {
+        applyNetState(msg.s);
       } else if (msg.t === "end") {
-        if (online.enabled && online.side === "right") {
-          paused = true;
-          showOnlineEnd(!!msg?.win);
-        }
+        paused = true;
+        const localWin = online.side === "left" ? !!msg.leftWon : !msg.leftWon;
+        showOnlineEnd(localWin);
+      } else if (msg.t === "peer_left") {
+        online.phase = "waiting";
+        paused = true;
+        setOnlineStatus("Соперник вышел · ожидание…");
       }
     };
-  }
-
-  function dcSend(obj) {
-    try {
-      if (online.dc && online.dc.readyState === "open") {
-        online.dc.send(JSON.stringify(obj));
-      }
-    } catch {
-      /* ignore */
-    }
   }
 
   function makeState() {
@@ -613,20 +577,7 @@
     };
   }
 
-  function startOnlineMatch() {
-    opponentName = online.side === "left" ? "Гость" : "Хост";
-    opponentElo = 0;
-    opponentSpeed = 0;
-    aiMode = "neutral";
-    if (online.side === "left") {
-      resetMatch();
-    }
-    online.phase = "playing";
-    paused = false;
-    lastTs = 0;
-    setScreen("game");
-    overlay.classList.remove("visible");
-  }
+  // (startOnlineMatch removed - server controls start)
 
   function goalY0() {
     return H / 2 - GOAL_HALF_H;
@@ -778,19 +729,7 @@
 
   function endMatch(playerWon) {
     if (online.enabled) {
-      paused = true;
-      const localWin = localSide() === "left" ? !!playerWon : !playerWon;
-      if (online.side === "left") {
-        // right side sees inverted win
-        dcSend({ t: "end", win: !playerWon });
-      }
-      // submit to Kings leaderboard (online players only)
-      fetch("/.netlify/functions/kings-submit", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: clientId, nick: profile.nickname, elo: profile.elo }),
-      }).catch(() => {});
-      showOnlineEnd(localWin);
+      // Online matches are authoritative on backend; end is received via WS.
       return;
     }
     paused = true;
@@ -1285,25 +1224,13 @@
         collideStriker(ai);
         for (let i = 0; i < 3; i++) enforcePuckBounds();
         goalCheck();
-      } else if (online.role === "host") {
-        // host-authoritative simulation
-        stepPuck(dt);
-        collideStriker(player);
-        collideStriker(ai);
-        for (let i = 0; i < 3; i++) enforcePuckBounds();
-        const g = goalCheck();
-        online.sendAcc += dt;
-        if (online.sendAcc > 0.05 || g) {
-          online.sendAcc = 0;
-          dcSend({ t: "state", s: makeState() });
-        }
       } else {
-        // guest: receive state, only send input
+        // server-authoritative: only send input when playing
         online.sendAcc += dt;
-        if (online.sendAcc > 0.03) {
+        if (online.phase === "playing" && online.sendAcc > 0.03) {
           online.sendAcc = 0;
           const me = getLocalStriker();
-          dcSend({ t: "input", x: me.x, y: me.y });
+          wsSend({ t: "input", x: me.x, y: me.y });
         }
       }
     }
@@ -1386,107 +1313,7 @@
     history.replaceState(null, "", u.toString());
   }
 
-  async function joinByLink(code) {
-    // show empty match and wait for second player
-    teardownOnline();
-    online.enabled = true;
-    online.code = code;
-    online.phase = "waiting";
-    puck.x = W / 2;
-    puck.y = H / 2;
-    puck.vx = 0;
-    puck.vy = 0;
-    player.x = inner.left + 150;
-    player.y = H / 2;
-    ai.x = inner.right - 150;
-    ai.y = H / 2;
-    paused = true;
-    overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:#2d7cc9">Ссылка: ${code}</div><button class="btn btn-ghost" id="btnCancelWait" style="max-width:240px">В меню</button>`;
-    overlay.classList.add("visible");
-    document.getElementById("btnCancelWait").onclick = () => {
-      overlay.classList.remove("visible");
-      teardownOnline();
-      clearRoomFromUrl();
-      setScreen("menu");
-    };
-    setScreen("game");
-
-    // real online: both send hello; once peerId is known, deterministic initiator sends offer
-    online.peerId = "";
-    online.helloSent = false;
-    online.offerSent = false;
-
-    if (online.pollTimer) clearInterval(online.pollTimer);
-    online.pollAfter = 0;
-    // send hello immediately (and retry until peer is discovered)
-    try {
-      await apiSend(code, "hello", { clientId });
-      online.helloSent = true;
-    } catch {
-      online.helloSent = false;
-    }
-    online.pollTimer = setInterval(async () => {
-      try {
-        const res = await apiPoll(code, online.pollAfter);
-        online.pollAfter = Math.max(online.pollAfter, res.seq || 0);
-        // discover peer
-        if (!online.peerId) {
-          const pid = setPeerIdFrom(res.messages);
-          if (pid) {
-            online.peerId = pid;
-            decideSides(pid);
-            setOnlineStatus("Соперник найден · соединяемся…");
-            if (!online.pc) setupPeer();
-          } else {
-            // retry hello occasionally
-            if (!online.helloSent) {
-              try {
-                await apiSend(code, "hello", { clientId });
-                online.helloSent = true;
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        }
-
-        // handle signaling messages
-        for (const m of res.messages || []) {
-          if (!online.pc) continue;
-          if (m.type === "offer" && online.side === "right" && !online.pc.currentRemoteDescription) {
-            await online.pc.setRemoteDescription(m.payload);
-            const ans = await online.pc.createAnswer();
-            await online.pc.setLocalDescription(ans);
-            await apiSend(code, "answer", ans);
-          } else if (m.type === "answer" && online.side === "left") {
-            if (!online.pc.currentRemoteDescription) await online.pc.setRemoteDescription(m.payload);
-          } else if (m.type === "ice") {
-            try {
-              await online.pc.addIceCandidate(m.payload);
-            } catch {
-              /* ignore */
-            }
-          }
-        }
-
-        // initiator (left) sends offer once when peer exists
-        if (online.peerId && online.side === "left" && !online.offerSent && online.pc && !online.pc.localDescription) {
-          // ensure we have a datachannel for gameplay
-          if (!online.dc) {
-            online.dc = online.pc.createDataChannel("game", { ordered: true });
-            wireDataChannel();
-          }
-          const offer = await online.pc.createOffer();
-          await online.pc.setLocalDescription(offer);
-          await apiSend(code, "offer", offer);
-          online.offerSent = true;
-          setOnlineStatus("Оффер отправлен · ждём ответ…");
-        }
-      } catch {
-        /* ignore */
-      }
-    }, 650);
-  }
+  // joinByLink replaced by connectWs()
 
   btnOnline?.addEventListener("click", async () => {
     if (myCodeView) myCodeView.textContent = clientId;
@@ -1495,7 +1322,7 @@
     if (btnCopyInvite) btnCopyInvite.disabled = true;
     if (btnOpenMatch) btnOpenMatch.disabled = true;
     try {
-      const code = await apiCreateRoom();
+      const code = randRoom(6);
       preparedRoomCode = code;
       const link = roomLink(code);
       if (myLinkView) myLinkView.textContent = link;
@@ -1515,10 +1342,25 @@
 
   btnOpenMatch?.addEventListener("click", async () => {
     try {
-      const code = preparedRoomCode || (await apiCreateRoom());
+      const code = preparedRoomCode || randRoom(6);
       preparedRoomCode = code;
       setUrlToRoom(code);
-      await joinByLink(code);
+      // show waiting match + connect to backend WS
+      puck.x = W / 2;
+      puck.y = H / 2;
+      puck.vx = 0;
+      puck.vy = 0;
+      paused = true;
+      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${code}</div><button class="btn btn-ghost" id="btnCancelWait" style="max-width:240px">В меню</button>`;
+      overlay.classList.add("visible");
+      document.getElementById("btnCancelWait").onclick = () => {
+        overlay.classList.remove("visible");
+        teardownOnline();
+        clearRoomFromUrl();
+        setScreen("menu");
+      };
+      setScreen("game");
+      connectWs(code);
     } catch {
       setOnlineStatus("Ошибка открытия матча");
     }
@@ -1580,7 +1422,10 @@
   const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
   if (room0) {
     // direct link opens waiting match automatically
-    joinByLink(room0);
+    setScreen("game");
+    overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${room0}</div>`;
+    overlay.classList.add("visible");
+    connectWs(room0);
   } else {
     setScreen("menu");
   }
