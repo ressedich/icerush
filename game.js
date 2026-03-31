@@ -1439,7 +1439,8 @@
 
         // server-authoritative: only send input when playing
         online.sendAcc += dt;
-        if (online.phase === "playing" && online.sendAcc > 0.03) {
+        // Higher input rate reduces perceived "lag" on hits.
+        if (online.phase === "playing" && online.sendAcc > 0.016) {
           online.sendAcc = 0;
           const me = getLocalStriker();
           wsSend({ t: "input", x: me.x, y: me.y });

@@ -35,6 +35,7 @@ const PUCK_R = 13;
 const REST = 0.92;
 const FRICTION = 0.9982;
 const PUCK_MAX_SPEED = 900;
+const STRIKER_MAX_SPEED = 1900; // px/s, server-side cap for responsiveness
 
 const inner = {
   left: MARGIN + BORDER,
@@ -300,21 +301,49 @@ function tick(room: Room) {
   const l = st.left;
   const r = st.right;
   const safeDt = dt < 1e-4 ? 1 / 60 : dt;
-  l.vx = (l.x - (l.px ?? l.x)) / safeDt;
-  l.vy = (l.y - (l.py ?? l.y)) / safeDt;
-  r.vx = (r.x - (r.px ?? r.x)) / safeDt;
-  r.vy = (r.y - (r.py ?? r.y)) / safeDt;
-  l.px = l.x;
-  l.py = l.y;
-  r.px = r.x;
-  r.py = r.y;
+
+  // Move strikers with speed cap (less "floaty" than lerp)
+  const l0x = l.x;
+  const l0y = l.y;
+  const r0x = r.x;
+  const r0y = r.y;
 
   const lt = clampStrikerLeft(l.tx, l.ty);
-  l.x += (lt.x - l.x) * 0.35;
-  l.y += (lt.y - l.y) * 0.35;
+  {
+    const dx = lt.x - l.x;
+    const dy = lt.y - l.y;
+    const d = Math.hypot(dx, dy);
+    const maxMove = STRIKER_MAX_SPEED * safeDt;
+    if (d <= maxMove || d < 1e-6) {
+      l.x = lt.x;
+      l.y = lt.y;
+    } else {
+      const k = maxMove / d;
+      l.x += dx * k;
+      l.y += dy * k;
+    }
+  }
   const rt = clampStrikerRight(r.tx, r.ty);
-  r.x += (rt.x - r.x) * 0.35;
-  r.y += (rt.y - r.y) * 0.35;
+  {
+    const dx = rt.x - r.x;
+    const dy = rt.y - r.y;
+    const d = Math.hypot(dx, dy);
+    const maxMove = STRIKER_MAX_SPEED * safeDt;
+    if (d <= maxMove || d < 1e-6) {
+      r.x = rt.x;
+      r.y = rt.y;
+    } else {
+      const k = maxMove / d;
+      r.x += dx * k;
+      r.y += dy * k;
+    }
+  }
+
+  // velocities for collisions (must reflect this tick movement)
+  l.vx = (l.x - l0x) / safeDt;
+  l.vy = (l.y - l0y) / safeDt;
+  r.vx = (r.x - r0x) / safeDt;
+  r.vy = (r.y - r0y) / safeDt;
 
   const puck = st.puck;
   const travel = Math.hypot(puck.vx * dt, puck.vy * dt);
@@ -407,6 +436,48 @@ function json(obj: unknown, status = 200) {
   );
 }
 
+async function serveStatic(req: Request) {
+  const url = new URL(req.url);
+  // Map "/" -> "/index.html"
+  let path = decodeURIComponent(url.pathname);
+  if (path === "/") path = "/index.html";
+  // Disallow traversal
+  if (path.includes("..")) return allowCors(new Response("Bad path", { status: 400 }));
+  const fsPath = "." + path;
+  try {
+    const data = await Deno.readFile(fsPath);
+    const ct = contentType(fsPath) || "application/octet-stream";
+    return allowCors(
+      new Response(data, {
+        status: 200,
+        headers: {
+          "content-type": ct,
+          // Avoid stale JS/CSS when redeploying
+          "cache-control": path.endsWith(".js") || path.endsWith(".css") ? "no-cache" : "public, max-age=300",
+        },
+      }),
+    );
+  } catch {
+    return allowCors(new Response("Not found", { status: 404 }));
+  }
+}
+
+function contentType(p: string) {
+  const ext = p.toLowerCase().split(".").pop() || "";
+  if (ext === "html") return "text/html; charset=utf-8";
+  if (ext === "js" || ext === "mjs") return "text/javascript; charset=utf-8";
+  if (ext === "css") return "text/css; charset=utf-8";
+  if (ext === "json") return "application/json; charset=utf-8";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  if (ext === "svg") return "image/svg+xml";
+  if (ext === "ico") return "image/x-icon";
+  if (ext === "mp3") return "audio/mpeg";
+  if (ext === "wav") return "audio/wav";
+  return "";
+}
+
 function upgradeToWs(req: Request) {
   const { socket, response } = Deno.upgradeWebSocket(req);
   return { socket, response: allowCors(response) };
@@ -419,7 +490,8 @@ Deno.serve((req) => {
   if (req.method === "GET" && url.pathname === "/health") return json({ ok: true });
   if (req.method === "GET" && url.pathname === "/kings") return json({ ok: true, ...topKings() });
 
-  if (url.pathname !== "/ws") return allowCors(new Response("Not found", { status: 404 }));
+  // Everything except /ws is treated as static site.
+  if (url.pathname !== "/ws") return serveStatic(req);
 
   const { socket: ws, response } = upgradeToWs(req);
 

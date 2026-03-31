@@ -34,6 +34,7 @@ const PUCK_R = 13;
 const REST = 0.92;
 const FRICTION = 0.9982;
 const PUCK_MAX_SPEED = 900;
+const STRIKER_MAX_SPEED = 1900; // px/s, server-side cap for responsiveness
 
 const inner = {
   left: MARGIN + BORDER,
@@ -244,26 +245,51 @@ function tick(room) {
     return;
   }
 
-  // velocities for strikers from last positions
+  // Move strikers with speed cap; compute velocity from this tick's movement
   const l = st.left;
   const r = st.right;
   const safeDt = dt < 1e-4 ? 1 / 60 : dt;
-  l.vx = (l.x - (l.px ?? l.x)) / safeDt;
-  l.vy = (l.y - (l.py ?? l.y)) / safeDt;
-  r.vx = (r.x - (r.px ?? r.x)) / safeDt;
-  r.vy = (r.y - (r.py ?? r.y)) / safeDt;
-  l.px = l.x;
-  l.py = l.y;
-  r.px = r.x;
-  r.py = r.y;
+  const l0x = l.x;
+  const l0y = l.y;
+  const r0x = r.x;
+  const r0y = r.y;
 
-  // move strikers towards targets
   const lt = clampStrikerLeft(l.tx, l.ty);
-  l.x += (lt.x - l.x) * 0.35;
-  l.y += (lt.y - l.y) * 0.35;
+  {
+    const dx = lt.x - l.x;
+    const dy = lt.y - l.y;
+    const d = Math.hypot(dx, dy);
+    const maxMove = STRIKER_MAX_SPEED * safeDt;
+    if (d <= maxMove || d < 1e-6) {
+      l.x = lt.x;
+      l.y = lt.y;
+    } else {
+      const k = maxMove / d;
+      l.x += dx * k;
+      l.y += dy * k;
+    }
+  }
+
   const rt = clampStrikerRight(r.tx, r.ty);
-  r.x += (rt.x - r.x) * 0.35;
-  r.y += (rt.y - r.y) * 0.35;
+  {
+    const dx = rt.x - r.x;
+    const dy = rt.y - r.y;
+    const d = Math.hypot(dx, dy);
+    const maxMove = STRIKER_MAX_SPEED * safeDt;
+    if (d <= maxMove || d < 1e-6) {
+      r.x = rt.x;
+      r.y = rt.y;
+    } else {
+      const k = maxMove / d;
+      r.x += dx * k;
+      r.y += dy * k;
+    }
+  }
+
+  l.vx = (l.x - l0x) / safeDt;
+  l.vy = (l.y - l0y) / safeDt;
+  r.vx = (r.x - r0x) / safeDt;
+  r.vy = (r.y - r0y) / safeDt;
 
   // puck integration (substeps)
   const puck = st.puck;
