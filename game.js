@@ -40,6 +40,7 @@
     search: document.getElementById("search"),
     profile: document.getElementById("profile"),
     online: document.getElementById("online"),
+    kings: document.getElementById("kings"),
     game: document.getElementById("game"),
   };
   const navEloChip = document.getElementById("navEloChip");
@@ -48,6 +49,7 @@
   const arenaView = document.getElementById("arenaView");
   const btnFind = document.getElementById("btnFind");
   const btnOnline = document.getElementById("btnOnline");
+  const btnKings = document.getElementById("btnKings");
   const btnHowto = document.getElementById("btnHowto");
   const btnProfile = document.getElementById("btnProfile");
   const btnBackFromProfile = document.getElementById("btnBackFromProfile");
@@ -75,6 +77,12 @@
   const btnOpenMatch = document.getElementById("btnOpenMatch");
   const btnCopyInvite = document.getElementById("btnCopyInvite");
   const btnBackFromOnline = document.getElementById("btnBackFromOnline");
+
+  // kings ui
+  const kingsUpdated = document.getElementById("kingsUpdated");
+  const kingsCount = document.getElementById("kingsCount");
+  const kingsList = document.getElementById("kingsList");
+  const btnBackFromKings = document.getElementById("btnBackFromKings");
 
   const W = LOGICAL_W;
   const H = LOGICAL_H;
@@ -772,9 +780,16 @@
     if (online.enabled) {
       paused = true;
       const localWin = localSide() === "left" ? !!playerWon : !playerWon;
-      if (online.role === "host") {
+      if (online.side === "left") {
+        // right side sees inverted win
         dcSend({ t: "end", win: !playerWon });
       }
+      // submit to Kings leaderboard (online players only)
+      fetch("/.netlify/functions/kings-submit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: clientId, nick: profile.nickname, elo: profile.elo }),
+      }).catch(() => {});
       showOnlineEnd(localWin);
       return;
     }
@@ -1315,6 +1330,42 @@
   btnBackFromProfile.addEventListener("click", () => {
     setScreen("menu");
   });
+
+  async function loadKings() {
+    if (!kingsList) return;
+    kingsList.innerHTML = "";
+    try {
+      const r = await fetch("/.netlify/functions/kings-top", { cache: "no-store" });
+      const j = await r.json();
+      const top = Array.isArray(j?.top) ? j.top : [];
+      if (kingsUpdated) {
+        kingsUpdated.textContent = j?.updatedAt ? new Date(j.updatedAt).toLocaleString() : "—";
+      }
+      if (kingsCount) kingsCount.textContent = j?.total != null ? String(j.total) : "—";
+      if (!top.length) {
+        const li = document.createElement("li");
+        li.textContent = "Пока пусто — сыграйте онлайн матч.";
+        kingsList.appendChild(li);
+        return;
+      }
+      for (let i = 0; i < top.length; i++) {
+        const it = top[i];
+        const li = document.createElement("li");
+        li.textContent = `${i + 1}. ${it.nick} · ${it.elo} Elo`;
+        kingsList.appendChild(li);
+      }
+    } catch {
+      const li = document.createElement("li");
+      li.textContent = "Не удалось загрузить список.";
+      kingsList.appendChild(li);
+    }
+  }
+
+  btnKings?.addEventListener("click", async () => {
+    setScreen("kings");
+    await loadKings();
+  });
+  btnBackFromKings?.addEventListener("click", () => setScreen("menu"));
 
   function roomLink(code) {
     return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
