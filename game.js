@@ -1273,7 +1273,8 @@
         }
         // server-authoritative: only send input when playing
         online.sendAcc += dt;
-        if (online.phase === "playing" && online.sendAcc > 0.03) {
+        // Send input ~60Hz to reduce "missed hit" feeling on ping
+        if (online.phase === "playing" && online.sendAcc > 0.016) {
           online.sendAcc = 0;
           const me = getLocalStriker();
           wsSend({ t: "input", x: me.x, y: me.y });
