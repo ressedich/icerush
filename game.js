@@ -51,6 +51,7 @@
   const btnHowto = document.getElementById("btnHowto");
   const btnProfile = document.getElementById("btnProfile");
   const btnBackFromProfile = document.getElementById("btnBackFromProfile");
+  const btnTheme = document.getElementById("btnTheme");
   const howto = document.getElementById("howto");
   const searchArena = document.getElementById("searchArena");
   const searchRange = document.getElementById("searchRange");
@@ -191,6 +192,37 @@
   }
 
   const clientId = getClientId();
+
+  // -------- theme toggle --------
+  const THEME_KEY = "ice_rush_theme_v1"; // "light" | "dark"
+  function applyTheme(mode) {
+    const m = mode === "dark" ? "dark" : "light";
+    document.body.classList.toggle("theme-dark", m === "dark");
+    if (btnTheme) btnTheme.textContent = m === "dark" ? "Dark" : "Light";
+    try {
+      localStorage.setItem(THEME_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  }
+  function initTheme() {
+    let saved = "";
+    try {
+      saved = (localStorage.getItem(THEME_KEY) || "").trim();
+    } catch {
+      saved = "";
+    }
+    if (!saved) {
+      const preferDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      saved = preferDark ? "dark" : "light";
+    }
+    applyTheme(saved);
+  }
+  initTheme();
+  btnTheme?.addEventListener("click", () => {
+    const isDark = document.body.classList.contains("theme-dark");
+    applyTheme(isDark ? "light" : "dark");
+  });
 
   async function copyText(txt) {
     const t = String(txt || "");

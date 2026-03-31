@@ -1,14 +1,37 @@
 :root {
+  --bg0: #eaf2fb;
+  --bg1: #d7e8fb;
+  --panel: rgba(255, 255, 255, 0.92);
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface2: rgba(240, 248, 255, 0.92);
+  --border: rgba(61, 124, 186, 0.28);
+  --text: #1a2744;
+  --muted: rgba(26, 39, 68, 0.62);
+  --accent: #ff6b35;
+  --accent2: #2d7cc9;
+  --ok: #1a8a52;
+  --radius: 16px;
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --shadow0: 0 10px 26px rgba(45, 90, 140, 0.08);
+  --shadow1: 0 18px 44px rgba(45, 90, 140, 0.12);
+  --shadow2: 0 16px 44px rgba(45, 90, 140, 0.16);
+}
+
+body.theme-dark {
   --bg0: #0b1220;
   --bg1: #0a0f1a;
   --panel: rgba(18, 26, 44, 0.92);
+  --surface: rgba(18, 26, 44, 0.86);
+  --surface2: rgba(22, 32, 54, 0.92);
   --border: rgba(120, 160, 220, 0.18);
   --text: rgba(240, 246, 255, 0.92);
   --muted: rgba(240, 246, 255, 0.62);
   --accent: #ff7a3d;
   --accent2: #4aa3ff;
-  --radius: 16px;
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --ok: #3fd38f;
+  --shadow0: 0 10px 26px rgba(0, 0, 0, 0.30);
+  --shadow1: 0 18px 44px rgba(0, 0, 0, 0.40);
+  --shadow2: 0 16px 44px rgba(0, 0, 0, 0.45);
 }
 
 *,
@@ -24,6 +47,13 @@ body {
   min-height: 100%;
   font-family: var(--font);
   color: var(--text);
+  background:
+    radial-gradient(900px 500px at 15% 0%, rgba(45, 124, 201, 0.14), transparent),
+    radial-gradient(800px 520px at 90% 10%, rgba(255, 107, 53, 0.08), transparent),
+    linear-gradient(165deg, #ffffff 0%, var(--bg0) 50%, var(--bg1) 100%);
+}
+
+body.theme-dark {
   background:
     radial-gradient(900px 500px at 15% 0%, rgba(74, 163, 255, 0.12), transparent),
     radial-gradient(800px 520px at 90% 10%, rgba(255, 122, 61, 0.10), transparent),
@@ -81,9 +111,9 @@ body.is-mobile .game-frame {
   gap: 12px;
   padding: 10px 10px;
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: 0 10px 26px rgba(45, 90, 140, 0.08);
+  box-shadow: var(--shadow0);
 }
 
 .brand {
@@ -144,7 +174,7 @@ body.is-mobile .game-frame {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px 16px 14px;
-  box-shadow: 0 18px 44px rgba(45, 90, 140, 0.12);
+  box-shadow: var(--shadow1);
 }
 
 .title {
@@ -166,7 +196,7 @@ body.is-mobile .game-frame {
 
 .card {
   margin-top: 14px;
-  background: rgba(240, 248, 255, 0.92);
+  background: var(--surface2);
   border: 1px solid rgba(61, 124, 186, 0.16);
   border-radius: 14px;
   padding: 12px 12px 12px;
@@ -199,7 +229,7 @@ body.is-mobile .game-frame {
   text-align: center;
   padding: 10px 10px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--surface);
   border: 1px solid rgba(61, 124, 186, 0.14);
 }
 
@@ -307,7 +337,7 @@ body.is-mobile .inline {
 }
 
 .btn-ghost {
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--surface);
   border-color: rgba(61, 124, 186, 0.22);
   color: var(--text);
 }
@@ -321,7 +351,7 @@ body.is-mobile .inline {
   margin-top: 10px;
   font-size: 0.88rem;
   line-height: 1.4;
-  color: rgba(26, 39, 68, 0.8);
+  color: var(--muted);
 }
 
 .hidden {
@@ -366,7 +396,7 @@ body.is-mobile .inline {
   padding: 8px 10px;
   max-height: 140px;
   overflow: auto;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--surface);
   border: 1px solid rgba(61, 124, 186, 0.16);
   border-radius: 12px;
   color: var(--muted);
@@ -383,7 +413,7 @@ body.is-mobile .inline {
   margin-top: 8px;
   padding: 10px 10px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--surface);
   border: 1px solid rgba(61, 124, 186, 0.16);
   color: var(--text);
   font-weight: 700;
@@ -418,7 +448,7 @@ body.is-mobile .inline {
   margin-top: 10px;
   text-align: center;
   font-weight: 900;
-  color: #1a8a52;
+  color: var(--ok);
   min-height: 1.2em;
 }
 
@@ -428,8 +458,8 @@ body.is-mobile .inline {
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid rgba(61, 124, 186, 0.28);
-  box-shadow: 0 16px 44px rgba(45, 90, 140, 0.16);
-  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow2);
+  background: var(--surface);
   position: relative;
 }
 
@@ -449,10 +479,16 @@ body.is-mobile .inline {
   justify-content: center;
   flex-direction: column;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--panel);
   color: var(--text);
   font-weight: 900;
   font-size: 1.3rem;
+}
+
+.btn-small {
+  width: auto;
+  padding: 8px 10px;
+  font-size: 0.9rem;
 }
 
 .overlay.visible {
