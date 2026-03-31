@@ -744,6 +744,16 @@
     const local = getLocalStriker();
     const remote = getRemoteStriker();
 
+    // If we are receiving authoritative running state, start locally even if
+    // the earlier "ready" message was missed.
+    if (s.running && online.phase !== "playing") {
+      online.phase = "playing";
+      paused = false;
+      lastTs = 0;
+      overlay.classList.remove("visible");
+      setOnlineStatus("Матч идёт");
+    }
+
     if (s.puck) {
       netTarget.puck.x = +s.puck.x;
       netTarget.puck.y = +s.puck.y;
