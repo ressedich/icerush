@@ -450,8 +450,9 @@
   }
 
   // Configure your backend WS URL after deploy
-  // Example: wss://ice-rush-ws.onrender.com/ws
-  const WS_BACKEND_URL = "wss://icerush-ws.onrender.com/ws";
+  // Render sometimes proxies WS best on root path; server accepts any path anyway.
+  // Example: wss://ice-rush-ws.onrender.com
+  const WS_BACKEND_URL = "wss://icerush-ws.onrender.com";
 
   function randRoom(len = 6) {
     const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

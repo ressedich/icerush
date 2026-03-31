@@ -19,5 +19,5 @@ docker run -p 8080:8080 ice-rush-ws
 
 ### Frontend config
 Set `WS_BACKEND_URL` in `game.js` to your deployed backend, e.g.:
-`wss://your-app.onrender.com/ws`
+`wss://your-app.onrender.com`
 
