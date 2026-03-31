@@ -486,11 +486,9 @@
   }
 
   // Backend WebSocket URL.
-  // If frontend and backend are hosted on the SAME domain (e.g. Deno Deploy app),
-  // we derive WS URL from current origin so preview/prod domains always work.
-  // If you host backend elsewhere (e.g. Render), set override below.
-  // Your Deno Deploy production backend:
-  // If your Production URL is `https://icerush.ressedich.deno.net`, then WS is:
+  // Deno Deploy nuance: some setups serve the site on `*.deno.net`, but WS may
+  // only be available on the compute domain `*.deno.dev`. We handle that with
+  // fallback candidates automatically.
   const WS_BACKEND_URL = "wss://icerush.ressedich.deno.net/ws";
 
   function wsBackendBase() {
@@ -498,6 +496,41 @@
     if (o) return o;
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.host}/ws`;
+  }
+
+  function wsBackendCandidates() {
+    const base = wsBackendBase();
+    const out = [];
+    if (base) out.push(base);
+    // same-origin fallback
+    try {
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      out.push(`${proto}//${window.location.host}/ws`);
+    } catch {
+      /* ignore */
+    }
+    // deno.net -> deno.dev fallback (WS often lives there)
+    try {
+      const u = new URL(base || out[0]);
+      if (u.hostname.includes(".deno.net")) {
+        const host2 = u.hostname.replace(".deno.net", ".deno.dev");
+        const u2 = new URL(u.toString());
+        u2.hostname = host2;
+        out.push(u2.toString());
+      }
+    } catch {
+      /* ignore */
+    }
+    // de-dup
+    const uniq = [];
+    const seen = new Set();
+    for (const it of out) {
+      const s = String(it || "").trim();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      uniq.push(s);
+    }
+    return uniq;
   }
 
   function randRoom(len = 6) {
@@ -519,6 +552,23 @@
   function wsMmUrl() {
     const u = new URL(wsBackendBase());
     // no room param => matchmaking connection
+    u.searchParams.set("clientId", clientId);
+    u.searchParams.set("nick", profile.nickname || "Игрок");
+    u.searchParams.set("elo", String(profile.elo || 0));
+    return u.toString();
+  }
+
+  function wsUrlForBase(base, room) {
+    const u = new URL(base);
+    u.searchParams.set("room", room);
+    u.searchParams.set("clientId", clientId);
+    u.searchParams.set("nick", profile.nickname || "Игрок");
+    u.searchParams.set("elo", String(profile.elo || 0));
+    return u.toString();
+  }
+
+  function wsMmUrlForBase(base) {
+    const u = new URL(base);
     u.searchParams.set("clientId", clientId);
     u.searchParams.set("nick", profile.nickname || "Игрок");
     u.searchParams.set("elo", String(profile.elo || 0));
@@ -549,79 +599,90 @@
     online.connected = false;
     if (btnCopyInvite) btnCopyInvite.disabled = false;
 
-    const ws = new WebSocket(wsUrl(room));
-    online.ws = ws;
-    setOnlineStatus("Подключаемся к серверу…");
+    const bases = wsBackendCandidates();
+    let attempt = 0;
+    let opened = false;
 
-    ws.onopen = () => {
-      online.connected = true;
-      setOnlineStatus("Подключено · ожидание игрока…");
-      // start ping loop (browser can't read WS ping/pong frames, so we do app-level)
-      wsPing();
-      online._pingTimer = setInterval(wsPing, 500);
-    };
-    ws.onclose = () => {
-      online.connected = false;
-      try {
-        clearInterval(online._pingTimer);
-      } catch {
-        /* ignore */
-      }
-      if (online.enabled) setOnlineStatus("Соединение закрыто");
-    };
-    ws.onerror = () => {
-      online.connected = false;
-      if (online.enabled) setOnlineStatus("Ошибка соединения");
-    };
-    ws.onmessage = (ev) => {
-      let msg = null;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        msg = null;
-      }
-      if (!msg || typeof msg.t !== "string") return;
-      if (msg.t === "side") {
-        online.side = msg.side === "right" ? "right" : "left";
-      } else if (msg.t === "ready") {
-        setOnlineStatus("Игрок найден · старт!");
-        online.phase = "playing";
-        paused = false;
-        lastTs = 0;
-        overlay.classList.remove("visible");
-      } else if (msg.t === "wait") {
-        online.phase = "waiting";
-      } else if (msg.t === "pong") {
-        const now = performance.now();
-        const sent = +msg.c;
-        const serverMs = +msg.s;
-        if (Number.isFinite(sent) && Number.isFinite(serverMs)) {
-          const rtt = Math.max(0, now - sent);
-          // EWMA smoothing
-          netStats.rttMs += (rtt - netStats.rttMs) * 0.15;
-          const j = Math.abs(rtt - (netStats.lastRtt || rtt));
-          netStats.jitterMs += (j - netStats.jitterMs) * 0.12;
-          netStats.lastRtt = rtt;
-          // offset: clientPerfMs - serverMs ≈ (recv - rtt/2) - serverTime
-          const off = (now - rtt * 0.5) - serverMs;
-          netStats.offsetMs += (off - netStats.offsetMs) * 0.12;
-          // use refined offset for interpolation
-          net.offsetMs += (netStats.offsetMs - net.offsetMs) * 0.25;
-          // adaptive delay: more jitter -> more delay (smoother)
-          net.delayMs = clamp(90 + netStats.jitterMs * 2.2, 90, 190);
+    const tryConnect = () => {
+      const base = bases[Math.min(attempt, bases.length - 1)];
+      const full = wsUrlForBase(base, room);
+      const ws = new WebSocket(full);
+      online.ws = ws;
+      setOnlineStatus(`Подключаемся… (${attempt + 1}/${bases.length})`);
+
+      ws.onopen = () => {
+        opened = true;
+        online.connected = true;
+        setOnlineStatus("Подключено · ожидание игрока…");
+        wsPing();
+        online._pingTimer = setInterval(wsPing, 500);
+      };
+      ws.onclose = () => {
+        online.connected = false;
+        try {
+          clearInterval(online._pingTimer);
+        } catch {
+          /* ignore */
         }
-      } else if (msg.t === "state" && msg.s) {
-        applyNetState(msg.s, msg.ts);
-      } else if (msg.t === "end") {
-        paused = true;
-        const localWin = online.side === "left" ? !!msg.leftWon : !msg.leftWon;
-        showOnlineEnd(localWin);
-      } else if (msg.t === "peer_left") {
-        online.phase = "waiting";
-        paused = true;
-        setOnlineStatus("Соперник вышел · ожидание…");
-      }
+        if (online.enabled && !opened && attempt + 1 < bases.length) {
+          attempt++;
+          tryConnect();
+          return;
+        }
+        if (online.enabled) setOnlineStatus("Соединение закрыто");
+      };
+      ws.onerror = () => {
+        online.connected = false;
+        // onerror is followed by close; keep status calm
+      };
+      ws.onmessage = (ev) => {
+        let msg = null;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          msg = null;
+        }
+        if (!msg || typeof msg.t !== "string") return;
+        if (msg.t === "side") {
+          online.side = msg.side === "right" ? "right" : "left";
+        } else if (msg.t === "ready") {
+          setOnlineStatus("Игрок найден · старт!");
+          online.phase = "playing";
+          paused = false;
+          lastTs = 0;
+          overlay.classList.remove("visible");
+        } else if (msg.t === "wait") {
+          online.phase = "waiting";
+        } else if (msg.t === "pong") {
+          const now = performance.now();
+          const sent = +msg.c;
+          const serverMs = +msg.s;
+          if (Number.isFinite(sent) && Number.isFinite(serverMs)) {
+            const rtt = Math.max(0, now - sent);
+            netStats.rttMs += (rtt - netStats.rttMs) * 0.15;
+            const j = Math.abs(rtt - (netStats.lastRtt || rtt));
+            netStats.jitterMs += (j - netStats.jitterMs) * 0.12;
+            netStats.lastRtt = rtt;
+            const off = (now - rtt * 0.5) - serverMs;
+            netStats.offsetMs += (off - netStats.offsetMs) * 0.12;
+            net.offsetMs += (netStats.offsetMs - net.offsetMs) * 0.25;
+            net.delayMs = clamp(90 + netStats.jitterMs * 2.2, 90, 190);
+          }
+        } else if (msg.t === "state" && msg.s) {
+          applyNetState(msg.s, msg.ts);
+        } else if (msg.t === "end") {
+          paused = true;
+          const localWin = online.side === "left" ? !!msg.leftWon : !msg.leftWon;
+          showOnlineEnd(localWin);
+        } else if (msg.t === "peer_left") {
+          online.phase = "waiting";
+          paused = true;
+          setOnlineStatus("Соперник вышел · ожидание…");
+        }
+      };
     };
+
+    tryConnect();
   }
 
   function makeState() {
