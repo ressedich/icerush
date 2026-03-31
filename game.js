@@ -546,23 +546,57 @@
 
   function applyNetState(s) {
     if (!s) return;
+    // smooth network state to avoid jitter on high ping
+    if (!online.enabled) return;
+    const local = getLocalStriker();
+    const remote = getRemoteStriker();
+
     if (s.puck) {
-      puck.x = +s.puck.x;
-      puck.y = +s.puck.y;
-      puck.vx = +s.puck.vx;
-      puck.vy = +s.puck.vy;
+      netTarget.puck.x = +s.puck.x;
+      netTarget.puck.y = +s.puck.y;
+      netTarget.puck.vx = +s.puck.vx;
+      netTarget.puck.vy = +s.puck.vy;
     }
-    if (s.left) {
-      player.x = +s.left.x;
-      player.y = +s.left.y;
+
+    // map server left/right to our local/remote
+    const sLocal = online.side === "left" ? s.left : s.right;
+    const sRemote = online.side === "left" ? s.right : s.left;
+
+    if (sRemote) {
+      netTarget.remote.x = +sRemote.x;
+      netTarget.remote.y = +sRemote.y;
     }
-    if (s.right) {
-      ai.x = +s.right.x;
-      ai.y = +s.right.y;
+    if (sLocal) {
+      netTarget.local.x = +sLocal.x;
+      netTarget.local.y = +sLocal.y;
     }
-    if (Number.isFinite(+s.sp)) scorePlayer = +s.sp;
-    if (Number.isFinite(+s.sa)) scoreAi = +s.sa;
+
+    if (Number.isFinite(+s.scoreL) && Number.isFinite(+s.scoreR)) {
+      // server uses scoreL/scoreR in ws backend
+      scorePlayer = online.side === "left" ? +s.scoreL : +s.scoreR;
+      scoreAi = online.side === "left" ? +s.scoreR : +s.scoreL;
+    } else {
+      if (Number.isFinite(+s.sp)) scorePlayer = +s.sp;
+      if (Number.isFinite(+s.sa)) scoreAi = +s.sa;
+    }
+
+    netTarget.has = true;
+    netTarget.t = performance.now();
+
+    // gentle correction for local (to reduce drift without snapping)
+    local.x += (netTarget.local.x - local.x) * 0.08;
+    local.y += (netTarget.local.y - local.y) * 0.08;
+
+    // remote and puck are smoothed continuously in the main loop
   }
+
+  const netTarget = {
+    has: false,
+    t: 0,
+    puck: { x: W / 2, y: H / 2, vx: 0, vy: 0 },
+    remote: { x: inner.right - 150, y: H / 2 },
+    local: { x: inner.left + 150, y: H / 2 },
+  };
 
   function showOnlineEnd(localWin) {
     overlay.innerHTML =
@@ -1225,6 +1259,18 @@
         for (let i = 0; i < 3; i++) enforcePuckBounds();
         goalCheck();
       } else {
+        // smooth puck + remote visuals towards latest server snapshot
+        if (netTarget.has) {
+          // puck
+          puck.x += (netTarget.puck.x - puck.x) * 0.35;
+          puck.y += (netTarget.puck.y - puck.y) * 0.35;
+          puck.vx += (netTarget.puck.vx - puck.vx) * 0.25;
+          puck.vy += (netTarget.puck.vy - puck.vy) * 0.25;
+          // remote striker
+          const remote = getRemoteStriker();
+          remote.x += (netTarget.remote.x - remote.x) * 0.30;
+          remote.y += (netTarget.remote.y - remote.y) * 0.30;
+        }
         // server-authoritative: only send input when playing
         online.sendAcc += dt;
         if (online.phase === "playing" && online.sendAcc > 0.03) {
