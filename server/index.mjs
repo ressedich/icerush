@@ -309,7 +309,8 @@ function tick(room) {
 
   // broadcast state ~20hz
   room.broadcastAcc += dt;
-  if (room.broadcastAcc >= 0.05) {
+  // ~30Hz to reduce visible jitter on higher ping
+  if (room.broadcastAcc >= 0.033) {
     room.broadcastAcc = 0;
     broadcast(room, {
       t: "state",

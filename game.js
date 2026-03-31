@@ -615,6 +615,7 @@
 
     netTarget.has = true;
     netTarget.t = performance.now();
+    netTarget.recvAt = netTarget.t;
 
     // gentle correction for local (to reduce drift without snapping)
     local.x += (netTarget.local.x - local.x) * 0.08;
@@ -626,6 +627,7 @@
   const netTarget = {
     has: false,
     t: 0,
+    recvAt: 0,
     puck: { x: W / 2, y: H / 2, vx: 0, vy: 0 },
     remote: { x: inner.right - 150, y: H / 2 },
     local: { x: inner.left + 150, y: H / 2 },
@@ -1294,11 +1296,14 @@
       } else {
         // smooth puck + remote visuals towards latest server snapshot
         if (netTarget.has) {
-          // puck
-          puck.x += (netTarget.puck.x - puck.x) * 0.35;
-          puck.y += (netTarget.puck.y - puck.y) * 0.35;
-          puck.vx += (netTarget.puck.vx - puck.vx) * 0.25;
-          puck.vy += (netTarget.puck.vy - puck.vy) * 0.25;
+          // puck (slight extrapolation to reduce "tunneling" visuals on ping)
+          const age = Math.max(0, Math.min(0.12, (performance.now() - (netTarget.recvAt || netTarget.t || 0)) / 1000));
+          const px = netTarget.puck.x + netTarget.puck.vx * age;
+          const py = netTarget.puck.y + netTarget.puck.vy * age;
+          puck.x += (px - puck.x) * 0.45;
+          puck.y += (py - puck.y) * 0.45;
+          puck.vx += (netTarget.puck.vx - puck.vx) * 0.30;
+          puck.vy += (netTarget.puck.vy - puck.vy) * 0.30;
           // remote striker
           const remote = getRemoteStriker();
           remote.x += (netTarget.remote.x - remote.x) * 0.30;
