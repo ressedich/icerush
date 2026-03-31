@@ -489,7 +489,9 @@
   // If frontend and backend are hosted on the SAME domain (e.g. Deno Deploy app),
   // we derive WS URL from current origin so preview/prod domains always work.
   // If you host backend elsewhere (e.g. Render), set override below.
-  const WS_BACKEND_URL = ""; // optional override, e.g. "wss://ice-rush-ws.onrender.com/ws"
+  // Your Deno Deploy production backend:
+  // If your Production URL is `https://icerush.ressedich.deno.net`, then WS is:
+  const WS_BACKEND_URL = "wss://icerush.ressedich.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
