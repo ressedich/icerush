@@ -487,7 +487,7 @@
 
   // Backend WebSocket URL (pin to your Deno Deploy Production URL).
   // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush-tta23r84ts3e.deno.net/ws";
+  const WS_BACKEND_URL = "wss://icerush-62cb6adjcczq.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
@@ -519,7 +519,7 @@
     return uniq;
   }
 
-  function connectWithFallback(kind, makeUrlForBase, onReady) {
+  function connectWithFallback(kind, makeUrlForBase, handlers) {
     const bases = wsBackendCandidates();
     let attempt = 0;
     let opened = false;
@@ -541,9 +541,21 @@
         return;
       }
 
+      // IMPORTANT: attach message handlers immediately to avoid missing
+      // early server messages (side/ready) that can arrive right after connect.
+      try {
+        handlers?.attach?.(ws, base, attempt, bases.length);
+      } catch {
+        /* ignore */
+      }
+
       ws.onopen = () => {
         opened = true;
-        onReady(ws, base, attempt, bases.length);
+        try {
+          handlers?.open?.(ws, base, attempt, bases.length);
+        } catch {
+          /* ignore */
+        }
       };
       ws.onerror = () => {
         // close will usually follow
@@ -558,10 +570,14 @@
         if (typeof onReady === "function" && !opened) {
           // no-op; caller handles onclose for their last attempt if needed
         }
-        if (kind === "mm") {
-          searchStatus.textContent = `Ошибка соединения (матчмейкинг) · ${ev.code || 0}`;
-        } else {
-          setOnlineStatus(`Ошибка соединения · ${ev.code || 0}`);
+        try {
+          handlers?.close?.(ev, opened, attempt, bases.length);
+        } catch {
+          /* ignore */
+        }
+        if (!opened) {
+          if (kind === "mm") searchStatus.textContent = `Ошибка соединения (матчмейкинг) · ${ev.code || 0}`;
+          else setOnlineStatus(`Ошибка соединения · ${ev.code || 0}`);
         }
       };
     };
@@ -646,13 +662,9 @@
     connectWithFallback(
       "room",
       (base) => wsUrlForBase(base, room),
-      (ws, _base, attempt, total) => {
-        online.ws = ws;
-        setOnlineStatus(total > 1 ? `Подключено (${attempt + 1}/${total}) · ожидание игрока…` : "Подключено · ожидание игрока…");
-        online.connected = true;
-        wsPing();
-        online._pingTimer = setInterval(wsPing, 500);
-        ws.onmessage = (ev) => {
+      {
+        attach: (ws) => {
+          ws.onmessage = (ev) => {
         let msg = null;
         try {
           msg = JSON.parse(ev.data);
@@ -697,7 +709,24 @@
           paused = true;
           setOnlineStatus("Соперник вышел · ожидание…");
         }
-        };
+          };
+        },
+        open: (ws, _base, attempt, total) => {
+          online.ws = ws;
+          setOnlineStatus(total > 1 ? `Подключено (${attempt + 1}/${total}) · ожидание игрока…` : "Подключено · ожидание игрока…");
+          online.connected = true;
+          wsPing();
+          online._pingTimer = setInterval(wsPing, 500);
+        },
+        close: (_ev, wasOpened) => {
+          online.connected = false;
+          try {
+            clearInterval(online._pingTimer);
+          } catch {
+            /* ignore */
+          }
+          if (online.enabled && wasOpened) setOnlineStatus("Соединение закрыто");
+        },
       }
     );
   }
