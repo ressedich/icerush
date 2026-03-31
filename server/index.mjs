@@ -314,6 +314,7 @@ function tick(room) {
     room.broadcastAcc = 0;
     broadcast(room, {
       t: "state",
+      ts: Date.now(),
       s: {
         puck: { x: puck.x, y: puck.y, vx: puck.vx, vy: puck.vy },
         left: { x: l.x, y: l.y, nick: l.nick, elo: l.elo },

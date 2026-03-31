@@ -405,6 +405,13 @@
     connected: false,
   };
 
+  // Snapshot interpolation buffer (render slightly in the past)
+  const net = {
+    buf: [], // { ts:number(ms server), s:state, recv:number(ms perf) }
+    offsetMs: 0, // clientPerfMs - serverMs (estimated)
+    delayMs: 110, // interpolation delay
+  };
+
   // -------- matchmaking (quick play vs real players) --------
   const mm = {
     ws: null,
@@ -549,7 +556,7 @@
       } else if (msg.t === "wait") {
         online.phase = "waiting";
       } else if (msg.t === "state" && msg.s) {
-        applyNetState(msg.s);
+        applyNetState(msg.s, msg.ts);
       } else if (msg.t === "end") {
         paused = true;
         const localWin = online.side === "left" ? !!msg.leftWon : !msg.leftWon;
@@ -572,7 +579,7 @@
     };
   }
 
-  function applyNetState(s) {
+  function applyNetState(s, serverTs) {
     if (!s) return;
     // smooth network state to avoid jitter on high ping
     if (!online.enabled) return;
@@ -616,6 +623,14 @@
     netTarget.has = true;
     netTarget.t = performance.now();
     netTarget.recvAt = netTarget.t;
+
+    // snapshot buffer for time-based interpolation
+    const recv = performance.now();
+    const ts = Number.isFinite(+serverTs) ? +serverTs : Date.now();
+    const sampleOffset = recv - ts;
+    net.offsetMs += (sampleOffset - net.offsetMs) * 0.08;
+    net.buf.push({ ts, s, recv });
+    if (net.buf.length > 60) net.buf.splice(0, net.buf.length - 60);
 
     // gentle correction for local (to reduce drift without snapping)
     local.x += (netTarget.local.x - local.x) * 0.08;
@@ -1294,9 +1309,68 @@
         for (let i = 0; i < 3; i++) enforcePuckBounds();
         goalCheck();
       } else {
-        // smooth puck + remote visuals towards latest server snapshot
-        if (netTarget.has) {
-          // puck (slight extrapolation to reduce "tunneling" visuals on ping)
+        // time-based interpolation: render slightly in the past for smoothness
+        const now = performance.now();
+        const targetServerTime = now - net.offsetMs - net.delayMs;
+
+        if (net.buf.length >= 2) {
+          // find snapshots around targetServerTime
+          let a = null;
+          let b = null;
+          for (let i = net.buf.length - 1; i >= 0; i--) {
+            const cur = net.buf[i];
+            if (cur.ts <= targetServerTime) {
+              a = cur;
+              b = net.buf[Math.min(net.buf.length - 1, i + 1)];
+              break;
+            }
+          }
+          if (!a) {
+            a = net.buf[0];
+            b = net.buf[1];
+          }
+          if (!b) b = a;
+
+          const dtS = Math.max(1, (b.ts - a.ts));
+          const t = clamp((targetServerTime - a.ts) / dtS, 0, 1);
+
+          const sA = a.s;
+          const sB = b.s;
+
+          // choose remote state based on side
+          const aLocal = online.side === "left" ? sA.left : sA.right;
+          const aRemote = online.side === "left" ? sA.right : sA.left;
+          const bLocal = online.side === "left" ? sB.left : sB.right;
+          const bRemote = online.side === "left" ? sB.right : sB.left;
+
+          if (aRemote && bRemote) {
+            const r = getRemoteStriker();
+            r.x = aRemote.x + (bRemote.x - aRemote.x) * t;
+            r.y = aRemote.y + (bRemote.y - aRemote.y) * t;
+            if (typeof bRemote.nick === "string" && bRemote.nick.trim()) opponentName = bRemote.nick.trim().slice(0, 12);
+            if (Number.isFinite(+bRemote.elo)) opponentElo = +bRemote.elo;
+          }
+
+          if (aLocal && bLocal) {
+            // very gentle local correction to avoid drift without visible lag
+            const me = getLocalStriker();
+            me.x += ((aLocal.x + (bLocal.x - aLocal.x) * t) - me.x) * 0.06;
+            me.y += ((aLocal.y + (bLocal.y - aLocal.y) * t) - me.y) * 0.06;
+          }
+
+          if (sA.puck && sB.puck) {
+            puck.x = sA.puck.x + (sB.puck.x - sA.puck.x) * t;
+            puck.y = sA.puck.y + (sB.puck.y - sA.puck.y) * t;
+            puck.vx = sB.puck.vx;
+            puck.vy = sB.puck.vy;
+          }
+
+          if (Number.isFinite(+sB.scoreL) && Number.isFinite(+sB.scoreR)) {
+            scorePlayer = online.side === "left" ? +sB.scoreL : +sB.scoreR;
+            scoreAi = online.side === "left" ? +sB.scoreR : +sB.scoreL;
+          }
+        } else if (netTarget.has) {
+          // fallback: old smoothing + small extrapolation
           const age = Math.max(0, Math.min(0.12, (performance.now() - (netTarget.recvAt || netTarget.t || 0)) / 1000));
           const px = netTarget.puck.x + netTarget.puck.vx * age;
           const py = netTarget.puck.y + netTarget.puck.vy * age;
@@ -1304,11 +1378,11 @@
           puck.y += (py - puck.y) * 0.45;
           puck.vx += (netTarget.puck.vx - puck.vx) * 0.30;
           puck.vy += (netTarget.puck.vy - puck.vy) * 0.30;
-          // remote striker
-          const remote = getRemoteStriker();
-          remote.x += (netTarget.remote.x - remote.x) * 0.30;
-          remote.y += (netTarget.remote.y - remote.y) * 0.30;
+          const r = getRemoteStriker();
+          r.x += (netTarget.remote.x - r.x) * 0.30;
+          r.y += (netTarget.remote.y - r.y) * 0.30;
         }
+
         // server-authoritative: only send input when playing
         online.sendAcc += dt;
         if (online.phase === "playing" && online.sendAcc > 0.03) {
