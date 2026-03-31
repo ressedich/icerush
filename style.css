@@ -1,12 +1,12 @@
 :root {
-  --bg0: #eaf2fb;
-  --bg1: #d7e8fb;
-  --panel: rgba(255, 255, 255, 0.92);
-  --border: rgba(61, 124, 186, 0.28);
-  --text: #1a2744;
-  --muted: rgba(26, 39, 68, 0.62);
-  --accent: #ff6b35;
-  --accent2: #2d7cc9;
+  --bg0: #0b1220;
+  --bg1: #0a0f1a;
+  --panel: rgba(18, 26, 44, 0.92);
+  --border: rgba(120, 160, 220, 0.18);
+  --text: rgba(240, 246, 255, 0.92);
+  --muted: rgba(240, 246, 255, 0.62);
+  --accent: #ff7a3d;
+  --accent2: #4aa3ff;
   --radius: 16px;
   --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -25,9 +25,9 @@ body {
   font-family: var(--font);
   color: var(--text);
   background:
-    radial-gradient(900px 500px at 15% 0%, rgba(45, 124, 201, 0.14), transparent),
-    radial-gradient(800px 520px at 90% 10%, rgba(255, 107, 53, 0.08), transparent),
-    linear-gradient(165deg, #ffffff 0%, var(--bg0) 50%, var(--bg1) 100%);
+    radial-gradient(900px 500px at 15% 0%, rgba(74, 163, 255, 0.12), transparent),
+    radial-gradient(800px 520px at 90% 10%, rgba(255, 122, 61, 0.10), transparent),
+    linear-gradient(165deg, var(--bg1) 0%, var(--bg0) 55%, #050812 100%);
 }
 
 .shell {

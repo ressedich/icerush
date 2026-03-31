@@ -1275,24 +1275,8 @@
     return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
   }
 
-  async function ensurePersonalRoom() {
-    const key = "ice_rush_personal_room_v1";
-    let code = "";
-    try {
-      code = (localStorage.getItem(key) || "").trim().toUpperCase();
-    } catch {
-      code = "";
-    }
-    if (!code) {
-      code = await apiCreateRoom();
-      try {
-        localStorage.setItem(key, code);
-      } catch {
-        /* ignore */
-      }
-    }
-    return code;
-  }
+  // each online session gets a fresh room code
+  let preparedRoomCode = "";
 
   function setUrlToRoom(code) {
     const u = new URL(window.location.href);
@@ -1331,41 +1315,62 @@
     };
     setScreen("game");
 
-    // leader election via claim messages
+    // leader election via claim messages (stable: keep best claim ever seen)
     const claimPayload = { clientId };
-    let claimed = false;
-    let hostClientId = "";
+    let bestClaimSeq = Infinity;
+    let bestClaimClientId = "";
+    let claimSent = false;
+    let offerSent = false;
 
-    const decideRoleFrom = (messages) => {
-      const claims = (messages || []).filter((m) => m.type === "claim" && m.payload?.clientId);
-      if (!claims.length) return "";
-      claims.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-      return String(claims[0].payload.clientId);
+    const ingestClaims = (messages) => {
+      for (const m of messages || []) {
+        if (m?.type !== "claim") continue;
+        const cid = m?.payload?.clientId;
+        const seq = +m?.seq || 0;
+        if (!cid || !seq) continue;
+        if (seq < bestClaimSeq) {
+          bestClaimSeq = seq;
+          bestClaimClientId = String(cid);
+        }
+      }
     };
 
     if (online.pollTimer) clearInterval(online.pollTimer);
     online.pollAfter = 0;
+    // send our claim immediately (repeat once on failure)
+    try {
+      await apiSend(code, "claim", claimPayload);
+      claimSent = true;
+    } catch {
+      claimSent = false;
+    }
     online.pollTimer = setInterval(async () => {
       try {
         const res = await apiPoll(code, online.pollAfter);
         online.pollAfter = Math.max(online.pollAfter, res.seq || 0);
-        hostClientId = decideRoleFrom(res.messages);
-        if (!hostClientId && !claimed) {
-          claimed = true;
-          await apiSend(code, "claim", claimPayload);
+        ingestClaims(res.messages);
+        if (!bestClaimClientId) {
+          // occasionally re-send claim if initial send failed
+          if (!claimSent) {
+            try {
+              await apiSend(code, "claim", claimPayload);
+              claimSent = true;
+            } catch {
+              /* ignore */
+            }
+          }
           return;
         }
-
-        if (!hostClientId) return;
-        const shouldBeHost = hostClientId === clientId;
+        const shouldBeHost = bestClaimClientId === clientId;
         if (!online.pc) setupPeer(shouldBeHost ? "host" : "guest");
         online.code = code;
 
         // host: create offer once
-        if (shouldBeHost && !online.pc.localDescription) {
+        if (shouldBeHost && !offerSent && !online.pc.localDescription) {
           const offer = await online.pc.createOffer();
           await online.pc.setLocalDescription(offer);
           await apiSend(code, "offer", offer);
+          offerSent = true;
           setOnlineStatus("Ссылка активна · ждём подключения…");
         }
 
@@ -1399,7 +1404,8 @@
     if (btnCopyInvite) btnCopyInvite.disabled = true;
     if (btnOpenMatch) btnOpenMatch.disabled = true;
     try {
-      const code = await ensurePersonalRoom();
+      const code = await apiCreateRoom();
+      preparedRoomCode = code;
       const link = roomLink(code);
       if (myLinkView) myLinkView.textContent = link;
       if (btnCopyInvite) btnCopyInvite.disabled = false;
@@ -1418,7 +1424,8 @@
 
   btnOpenMatch?.addEventListener("click", async () => {
     try {
-      const code = await ensurePersonalRoom();
+      const code = preparedRoomCode || (await apiCreateRoom());
+      preparedRoomCode = code;
       setUrlToRoom(code);
       await joinByLink(code);
     } catch {
