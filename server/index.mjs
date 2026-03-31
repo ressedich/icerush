@@ -162,6 +162,30 @@ function makeInitialState() {
 // ---- Rooms ----
 const rooms = new Map(); // code -> room
 
+// ---- Matchmaking ----
+const mmWaiting = []; // [{ ws, id, nick, elo, seekingAt }]
+
+function randRoom(len = 6) {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < len; i++) s += abc[(Math.random() * abc.length) | 0];
+  return s;
+}
+
+function removeMm(ws) {
+  for (let i = mmWaiting.length - 1; i >= 0; i--) {
+    if (mmWaiting[i].ws === ws) mmWaiting.splice(i, 1);
+  }
+}
+
+function countConnectedPlayers(room) {
+  let n = 0;
+  for (const v of room.clients.values()) {
+    if (v.side === "left" || v.side === "right") n++;
+  }
+  return n;
+}
+
 function getRoom(code) {
   let r = rooms.get(code);
   if (!r) {
@@ -305,7 +329,7 @@ function maybeStart(room) {
   const st = room.state;
   const hasL = st.left.id;
   const hasR = st.right.id;
-  if (hasL && hasR && !st.running && !st.ended) {
+  if (hasL && hasR && countConnectedPlayers(room) >= 2 && !st.running && !st.ended) {
     st.running = true;
     st.ended = false;
     resetPuck(st.puck, true);
@@ -337,8 +361,74 @@ wss.on("connection", (ws, req) => {
   const nick = String(url.searchParams.get("nick") || "Игрок").trim().slice(0, 12) || "Игрок";
   const elo = Math.max(0, Math.min(5000, parseInt(url.searchParams.get("elo") || "0", 10) || 0));
 
-  if (!roomCode || !id) {
-    ws.close(1008, "Missing room/clientId");
+  if (!id) {
+    ws.close(1008, "Missing clientId");
+    return;
+  }
+
+  // Matchmaking connection (no room param)
+  if (!roomCode) {
+    send(ws, { t: "mm_hello" });
+    ws.on("message", (data) => {
+      let msg = null;
+      try {
+        msg = JSON.parse(String(data));
+      } catch {
+        msg = null;
+      }
+      if (!msg || typeof msg.t !== "string") return;
+      if (msg.t === "mm_find") {
+        removeMm(ws);
+        const me = { ws, id, nick, elo, seekingAt: Date.now() };
+        // find closest by Elo, within window
+        const WINDOW = 250;
+        let bestIdx = -1;
+        let bestDiff = 1e9;
+        for (let i = 0; i < mmWaiting.length; i++) {
+          const it = mmWaiting[i];
+          if (!it || it.id === id) continue;
+          const d = Math.abs((it.elo | 0) - (elo | 0));
+          if (d <= WINDOW && d < bestDiff) {
+            bestDiff = d;
+            bestIdx = i;
+          }
+        }
+        if (bestIdx >= 0) {
+          const other = mmWaiting.splice(bestIdx, 1)[0];
+          const code = randRoom(6);
+          const room = getRoom(code);
+          // reserve sides by id so reconnect is deterministic
+          room.state.left.id = other.id;
+          room.state.left.nick = other.nick;
+          room.state.left.elo = other.elo | 0;
+          room.state.right.id = id;
+          room.state.right.nick = nick;
+          room.state.right.elo = elo | 0;
+          // notify both clients
+          send(other.ws, { t: "mm_match", room: code, opp: { nick, elo } });
+          send(ws, { t: "mm_match", room: code, opp: { nick: other.nick, elo: other.elo } });
+          try {
+            other.ws.close(1000, "matched");
+          } catch {
+            /* ignore */
+          }
+          try {
+            ws.close(1000, "matched");
+          } catch {
+            /* ignore */
+          }
+        } else {
+          mmWaiting.push(me);
+          send(ws, { t: "mm_wait" });
+        }
+      } else if (msg.t === "mm_cancel") {
+        removeMm(ws);
+        send(ws, { t: "mm_wait" });
+      }
+    });
+    ws.on("close", () => {
+      removeMm(ws);
+    });
     return;
   }
 

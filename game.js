@@ -60,6 +60,8 @@
   const searchStatus = document.getElementById("searchStatus");
   const searchLog = document.getElementById("searchLog");
   const searchFound = document.getElementById("searchFound");
+  const btnSearchPlayers = document.getElementById("btnSearchPlayers");
+  const btnSearchBots = document.getElementById("btnSearchBots");
   const overlay = document.getElementById("overlay");
   const profNick = document.getElementById("profNick");
   const profElo = document.getElementById("profElo");
@@ -403,6 +405,22 @@
     connected: false,
   };
 
+  // -------- matchmaking (quick play vs real players) --------
+  const mm = {
+    ws: null,
+    searching: false,
+  };
+
+  function teardownMatchmaking() {
+    mm.searching = false;
+    try {
+      mm.ws?.close();
+    } catch {
+      /* ignore */
+    }
+    mm.ws = null;
+  }
+
   function setOnlineStatus(txt) {
     if (onlineStatus) onlineStatus.textContent = txt;
     if (onlineHint) onlineHint.textContent = txt;
@@ -464,6 +482,15 @@
   function wsUrl(room) {
     const u = new URL(WS_BACKEND_URL);
     u.searchParams.set("room", room);
+    u.searchParams.set("clientId", clientId);
+    u.searchParams.set("nick", profile.nickname || "Игрок");
+    u.searchParams.set("elo", String(profile.elo || 0));
+    return u.toString();
+  }
+
+  function wsMmUrl() {
+    const u = new URL(WS_BACKEND_URL);
+    // no room param => matchmaking connection
     u.searchParams.set("clientId", clientId);
     u.searchParams.set("nick", profile.nickname || "Игрок");
     u.searchParams.set("elo", String(profile.elo || 0));
@@ -562,6 +589,11 @@
     // map server left/right to our local/remote
     const sLocal = online.side === "left" ? s.left : s.right;
     const sRemote = online.side === "left" ? s.right : s.left;
+
+    if (sRemote && typeof sRemote.nick === "string" && sRemote.nick.trim()) {
+      opponentName = sRemote.nick.trim().slice(0, 12);
+    }
+    if (sRemote && Number.isFinite(+sRemote.elo)) opponentElo = +sRemote.elo;
 
     if (sRemote) {
       netTarget.remote.x = +sRemote.x;
@@ -1427,6 +1459,18 @@
     searchRange.textContent = lo + "–" + hi;
     searchLog.innerHTML = "";
     searchFound.textContent = "";
+    searchStatus.textContent = "Выберите режим: игроки или бот";
+    teardownMatchmaking();
+    btnSearchPlayers && (btnSearchPlayers.disabled = false);
+    btnSearchBots && (btnSearchBots.disabled = false);
+  });
+
+  async function startBotSearch() {
+    teardownMatchmaking();
+    btnSearchPlayers && (btnSearchPlayers.disabled = true);
+    btnSearchBots && (btnSearchBots.disabled = true);
+    searchLog.innerHTML = "";
+    searchFound.textContent = "";
 
     const steps = [
       ["Подключение к матчмейкингу…", 420],
@@ -1460,7 +1504,68 @@
     resetMatch();
     paused = false;
     lastTs = 0;
-  });
+  }
+
+  function startPlayerSearch() {
+    teardownMatchmaking();
+    btnSearchPlayers && (btnSearchPlayers.disabled = true);
+    btnSearchBots && (btnSearchBots.disabled = true);
+    searchLog.innerHTML = "";
+    searchFound.textContent = "";
+    searchStatus.textContent = "Ищем реального игрока…";
+
+    const ws = new WebSocket(wsMmUrl());
+    mm.ws = ws;
+    mm.searching = true;
+
+    ws.onopen = () => {
+      try {
+        ws.send(JSON.stringify({ t: "mm_find", elo: profile.elo, nick: profile.nickname }));
+      } catch {
+        /* ignore */
+      }
+    };
+    ws.onerror = () => {
+      if (!mm.searching) return;
+      searchStatus.textContent = "Ошибка соединения (матчмейкинг)";
+      teardownMatchmaking();
+      btnSearchPlayers && (btnSearchPlayers.disabled = false);
+      btnSearchBots && (btnSearchBots.disabled = false);
+    };
+    ws.onclose = () => {
+      if (!mm.searching) return;
+      searchStatus.textContent = "Соединение закрыто (матчмейкинг)";
+      teardownMatchmaking();
+      btnSearchPlayers && (btnSearchPlayers.disabled = false);
+      btnSearchBots && (btnSearchBots.disabled = false);
+    };
+    ws.onmessage = (ev) => {
+      let msg = null;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        msg = null;
+      }
+      if (!msg || typeof msg.t !== "string") return;
+      if (msg.t === "mm_wait") {
+        searchStatus.textContent = "Ожидание соперника…";
+      } else if (msg.t === "mm_match" && msg.room) {
+        mm.searching = false;
+        teardownMatchmaking();
+        opponentName = String(msg?.opp?.nick || "Игрок").slice(0, 12);
+        opponentElo = Number.isFinite(+msg?.opp?.elo) ? +msg.opp.elo : 0;
+        const room = String(msg.room).trim().toUpperCase().slice(0, 12);
+        setUrlToRoom(room);
+        setScreen("game");
+        overlay.innerHTML = `<div>Подключение к матчу…</div>`;
+        overlay.classList.add("visible");
+        connectWs(room);
+      }
+    };
+  }
+
+  btnSearchBots?.addEventListener("click", () => startBotSearch());
+  btnSearchPlayers?.addEventListener("click", () => startPlayerSearch());
 
   // init
   let profile = loadProfile();
