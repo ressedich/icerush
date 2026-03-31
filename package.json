@@ -1,0 +1,10 @@
+{
+  "name": "hockey-elo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.4"
+  }
+}
+

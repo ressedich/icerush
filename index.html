@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ice Rush — хоккей</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="shell" id="shell">
+      <header class="top-nav">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-text">ICE RUSH</span>
+        </div>
+        <div class="nav-chip" id="navEloChip" title="Ваш Elo">Elo 0</div>
+      </header>
+
+      <main class="main-flow">
+        <section id="menu" class="screen active">
+          <div class="panel">
+            <h1 class="title">Ледовый хоккей</h1>
+            <p class="subtitle">Матч против бота под ваш рейтинг</p>
+
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="label">Ник</div>
+                  <div class="value" id="nickView">Игрок</div>
+                </div>
+                <div class="right">
+                  <div class="label">Арена</div>
+                  <div class="value" id="arenaView">Школьный каток</div>
+                </div>
+              </div>
+
+              <div class="elo">
+                <div class="elo-num" id="menuElo">0</div>
+                <div class="elo-label">Ваш Elo</div>
+              </div>
+
+              <div class="actions">
+                <button class="btn btn-accent" id="btnFind">Найти игру</button>
+                <button class="btn btn-ghost" id="btnOnline">Онлайн 1v1</button>
+                <button class="btn btn-ghost" id="btnProfile">Профиль</button>
+                <button class="btn btn-ghost" id="btnHowto">Как играть</button>
+              </div>
+
+              <div class="howto hidden" id="howto">
+                Красный биток следует за курсором. Забейте шайбу в ворота справа. Матч до 5 голов. Домик — пауза/выход.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="search" class="screen">
+          <div class="panel">
+            <h2 class="title small">Поиск матча</h2>
+            <div class="search-meta">
+              <span>Арена: <strong id="searchArena">—</strong></span>
+              <span>Диапазон: <strong id="searchRange">—</strong></span>
+            </div>
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="status" id="searchStatus">Подключение…</div>
+            <ul class="log" id="searchLog"></ul>
+            <div class="found" id="searchFound"></div>
+          </div>
+        </section>
+
+        <section id="profile" class="screen">
+          <div class="panel">
+            <h2 class="title small">Профиль</h2>
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="label">Ник</div>
+                  <div class="value" id="profNick">Игрок</div>
+                </div>
+                <div class="right">
+                  <div class="label">Elo</div>
+                  <div class="value" id="profElo">0</div>
+                </div>
+              </div>
+              <div class="row" style="margin-top:10px">
+                <div>
+                  <div class="label">Матчей</div>
+                  <div class="value" id="profMatches">0</div>
+                </div>
+                <div class="right">
+                  <div class="label">Побед</div>
+                  <div class="value" id="profWins">0</div>
+                </div>
+              </div>
+              <div style="margin-top:12px">
+                <div class="label">Достижения</div>
+                <ul class="ach-list" id="achList"></ul>
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-ghost" id="btnBackFromProfile">Назад</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="online" class="screen">
+          <div class="panel">
+            <h2 class="title small">Онлайн 1v1</h2>
+            <p class="subtitle">Создайте комнату и отправьте код другу или зайдите по коду</p>
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="label">Ваш код</div>
+                  <div class="value" id="myCodeView">—</div>
+                </div>
+                <div class="right">
+                  <div class="label">Статус</div>
+                  <div class="value" id="onlineStatus">Оффлайн</div>
+                </div>
+              </div>
+
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-accent" id="btnCreateRoom">Создать комнату</button>
+                <button class="btn btn-ghost" id="btnCopyInvite" disabled>Скопировать инвайт</button>
+              </div>
+
+              <div class="field" style="margin-top:12px">
+                <div class="label">Войти по коду</div>
+                <div class="inline">
+                  <input class="input" id="joinCode" placeholder="Напр. Q7K2M9" maxlength="12" />
+                  <button class="btn btn-ghost" id="btnJoinRoom" style="max-width:160px">Войти</button>
+                </div>
+              </div>
+
+              <div class="howto" id="onlineHint" style="margin-top:10px">
+                Подсказка: создайте комнату, скопируйте инвайт и отправьте другу. Второй игрок входит по коду или по ссылке.
+              </div>
+
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-ghost" id="btnBackFromOnline">Назад</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="game" class="screen">
+          <div class="game-frame">
+            <canvas id="gameCanvas" width="880" height="520"></canvas>
+            <div class="overlay" id="overlay"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./game.js" defer></script>
+  </body>
+</html>
