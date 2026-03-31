@@ -485,11 +485,18 @@
     if (btnOpenMatch) btnOpenMatch.disabled = true;
   }
 
-  // Configure your backend WS URL after deploy
   // Backend WebSocket URL.
-  // Render example: wss://ice-rush-ws.onrender.com
-  // Deno Deploy example: wss://<your-project>.deno.dev/ws
-  const WS_BACKEND_URL = "wss://icerush-tta23r84ts3e.deno.dev/ws";
+  // If frontend and backend are hosted on the SAME domain (e.g. Deno Deploy app),
+  // we derive WS URL from current origin so preview/prod domains always work.
+  // If you host backend elsewhere (e.g. Render), set override below.
+  const WS_BACKEND_URL = ""; // optional override, e.g. "wss://ice-rush-ws.onrender.com/ws"
+
+  function wsBackendBase() {
+    const o = String(WS_BACKEND_URL || "").trim();
+    if (o) return o;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}/ws`;
+  }
 
   function randRoom(len = 6) {
     const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -499,7 +506,7 @@
   }
 
   function wsUrl(room) {
-    const u = new URL(WS_BACKEND_URL);
+    const u = new URL(wsBackendBase());
     u.searchParams.set("room", room);
     u.searchParams.set("clientId", clientId);
     u.searchParams.set("nick", profile.nickname || "Игрок");
@@ -508,7 +515,7 @@
   }
 
   function wsMmUrl() {
-    const u = new URL(WS_BACKEND_URL);
+    const u = new URL(wsBackendBase());
     // no room param => matchmaking connection
     u.searchParams.set("clientId", clientId);
     u.searchParams.set("nick", profile.nickname || "Игрок");
