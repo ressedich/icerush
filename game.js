@@ -451,7 +451,7 @@
 
   // Configure your backend WS URL after deploy
   // Example: wss://ice-rush-ws.onrender.com/ws
-  const WS_BACKEND_URL = "wss://YOUR_BACKEND_HOST/ws";
+  const WS_BACKEND_URL = "wss://icerush-ws.onrender.com/ws";
 
   function randRoom(len = 6) {
     const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
