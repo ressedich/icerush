@@ -486,8 +486,9 @@
   }
 
   // Configure your backend WS URL after deploy
-  // Render sometimes proxies WS best on root path; server accepts any path anyway.
-  // Example: wss://ice-rush-ws.onrender.com
+  // Backend WebSocket URL.
+  // Render example: wss://ice-rush-ws.onrender.com
+  // Deno Deploy example: wss://<your-project>.deno.dev/ws
   const WS_BACKEND_URL = "wss://icerush-ws.onrender.com";
 
   function randRoom(len = 6) {
