@@ -489,7 +489,7 @@
   // Backend WebSocket URL.
   // Render example: wss://ice-rush-ws.onrender.com
   // Deno Deploy example: wss://<your-project>.deno.dev/ws
-  const WS_BACKEND_URL = "wss://icerush-ws.onrender.com";
+  const WS_BACKEND_URL = "wss://icerush-tta23r84ts3e.deno.dev/ws";
 
   function randRoom(len = 6) {
     const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
