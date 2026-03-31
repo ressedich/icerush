@@ -133,13 +133,8 @@ function collideStriker(puck, striker) {
 function resetPuck(puck, serveLeft) {
   puck.x = W / 2 + (serveLeft ? -44 : 44);
   puck.y = H / 2;
-  // Give the puck a small serve so the first contacts feel responsive
-  // even with network latency and server-authoritative simulation.
-  const dir = serveLeft ? +1 : -1;
-  const a = (Math.random() * 2 - 1) * 0.45; // slight random angle
-  const sp = 260;
-  puck.vx = Math.cos(a) * sp * dir;
-  puck.vy = Math.sin(a) * sp;
+  puck.vx = 0;
+  puck.vy = 0;
 }
 
 function goalCheck(state) {
@@ -225,28 +220,26 @@ function tick(room) {
     return;
   }
 
-  // Keep previous striker positions to compute velocity after movement.
+  // velocities for strikers from last positions
   const l = st.left;
   const r = st.right;
   const safeDt = dt < 1e-4 ? 1 / 60 : dt;
-  const lpx = l.x;
-  const lpy = l.y;
-  const rpx = r.x;
-  const rpy = r.y;
+  l.vx = (l.x - (l.px ?? l.x)) / safeDt;
+  l.vy = (l.y - (l.py ?? l.y)) / safeDt;
+  r.vx = (r.x - (r.px ?? r.x)) / safeDt;
+  r.vy = (r.y - (r.py ?? r.y)) / safeDt;
+  l.px = l.x;
+  l.py = l.y;
+  r.px = r.x;
+  r.py = r.y;
 
   // move strikers towards targets
   const lt = clampStrikerLeft(l.tx, l.ty);
-  l.x += (lt.x - l.x) * 0.88;
-  l.y += (lt.y - l.y) * 0.88;
+  l.x += (lt.x - l.x) * 0.35;
+  l.y += (lt.y - l.y) * 0.35;
   const rt = clampStrikerRight(r.tx, r.ty);
-  r.x += (rt.x - r.x) * 0.88;
-  r.y += (rt.y - r.y) * 0.88;
-
-  // velocities for collisions (must reflect this tick's movement)
-  l.vx = (l.x - lpx) / safeDt;
-  l.vy = (l.y - lpy) / safeDt;
-  r.vx = (r.x - rpx) / safeDt;
-  r.vy = (r.y - rpy) / safeDt;
+  r.x += (rt.x - r.x) * 0.35;
+  r.y += (rt.y - r.y) * 0.35;
 
   // puck integration (substeps)
   const puck = st.puck;
@@ -292,8 +285,7 @@ function tick(room) {
 
   // broadcast state ~20hz
   room.broadcastAcc += dt;
-  // ~30Hz for smoother feel on higher ping
-  if (room.broadcastAcc >= 0.033) {
+  if (room.broadcastAcc >= 0.05) {
     room.broadcastAcc = 0;
     broadcast(room, {
       t: "state",
