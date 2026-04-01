@@ -488,7 +488,7 @@
         return;
       }
       setScreen("game");
-      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${room0}</div>`;
+      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent-2)">Ссылка: ${room0}</div>`;
       overlay.classList.add("visible");
       connectWs(room0);
       return;
@@ -1234,7 +1234,7 @@
     updateMenuUi();
     overlay.innerHTML =
       (localWin ? "Победа!" : "Поражение") +
-      `<div class="anim-in" style="font-size:1rem;font-weight:800;color:var(--accent2)">Онлайн матч</div>` +
+      `<div class="anim-in" style="font-size:1rem;font-weight:800;color:var(--accent-2)">Онлайн матч</div>` +
       `<div class="anim-pop" style="font-size:1rem;font-weight:900;color:var(--accent)">+${starsEarned} ⭐</div>` +
       `<button class="btn btn-accent" id="btnBack" style="max-width:240px">В меню</button>`;
     overlay.classList.add("visible");
@@ -1405,7 +1405,7 @@
     updateMenuUi();
     overlay.innerHTML =
       (playerWon ? "Победа!" : "Поражение") +
-      `<div style=\"font-size:1rem;font-weight:800;color:var(--accent2)\">Elo: ${delta > 0 ? "+" : ""}${delta} → ${profile.elo}</div>` +
+      `<div style=\"font-size:1rem;font-weight:800;color:var(--accent-2)\">Elo: ${delta > 0 ? "+" : ""}${delta} → ${profile.elo}</div>` +
       `<div style=\"font-size:1rem;font-weight:900;color:var(--accent)\">+${starsEarned} ⭐</div>` +
       `<button class=\"btn btn-accent\" id=\"btnBack\" style=\"max-width:240px\">В меню</button>`;
     overlay.classList.add("visible");
@@ -2168,7 +2168,7 @@
       puck.vx = 0;
       puck.vy = 0;
       paused = true;
-      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${code}</div><button class="btn btn-ghost" id="btnCancelWait" style="max-width:240px">В меню</button>`;
+      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent-2)">Ссылка: ${code}</div><button class="btn btn-ghost" id="btnCancelWait" style="max-width:240px">В меню</button>`;
       overlay.classList.add("visible");
       document.getElementById("btnCancelWait").onclick = () => {
         overlay.classList.remove("visible");
@@ -2248,7 +2248,7 @@
     overlay.classList.remove("visible");
     resetMatch();
     // Short match intro animation
-    overlay.innerHTML = `<div class="anim-in">Вбрасывание…</div><div class="anim-pop" style="font-size:1rem;font-weight:900;color:var(--accent2)">Удачи!</div>`;
+    overlay.innerHTML = `<div class="anim-in">Вбрасывание…</div><div class="anim-pop" style="font-size:1rem;font-weight:900;color:var(--accent-2)">Удачи!</div>`;
     overlay.classList.add("visible");
     paused = false;
     lastTs = 0;
