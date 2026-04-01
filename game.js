@@ -2047,24 +2047,51 @@
   async function loadKings() {
     if (!kingsList) return;
     kingsList.innerHTML = "";
+    if (!sb) {
+      const li = document.createElement("li");
+      li.textContent = "Supabase не подключён.";
+      kingsList.appendChild(li);
+      if (kingsUpdated) kingsUpdated.textContent = "—";
+      if (kingsCount) kingsCount.textContent = "—";
+      return;
+    }
     try {
-      const r = await fetch("/.netlify/functions/kings-top", { cache: "no-store" });
-      const j = await r.json();
-      const top = Array.isArray(j?.top) ? j.top : [];
-      if (kingsUpdated) {
-        kingsUpdated.textContent = j?.updatedAt ? new Date(j.updatedAt).toLocaleString() : "—";
+      const { count, error: countErr } = await sb.from("profiles").select("*", { count: "exact", head: true });
+      if (kingsCount) kingsCount.textContent = countErr || count == null ? "—" : String(count);
+
+      const { data, error } = await sb
+        .from("profiles")
+        .select("nickname, elo, stars")
+        .order("stars", { ascending: false })
+        .order("elo", { ascending: false })
+        .limit(3);
+
+      if (kingsUpdated) kingsUpdated.textContent = new Date().toLocaleString();
+
+      if (error) {
+        const li = document.createElement("li");
+        li.textContent =
+          error.message.indexOf("policy") >= 0 || error.code === "42501"
+            ? "Нет доступа к рейтингу. Выполни в Supabase SQL из supabase/rls_leaderboard.sql"
+            : "Ошибка: " + error.message;
+        kingsList.appendChild(li);
+        return;
       }
-      if (kingsCount) kingsCount.textContent = j?.total != null ? String(j.total) : "—";
+
+      const top = Array.isArray(data) ? data : [];
       if (!top.length) {
         const li = document.createElement("li");
-        li.textContent = "Пока пусто — сыграйте онлайн матч.";
+        li.textContent = "В базе пока нет профилей.";
         kingsList.appendChild(li);
         return;
       }
       for (let i = 0; i < top.length; i++) {
-        const it = top[i];
+        const row = top[i];
+        const nick = String(row.nickname || "Игрок").trim().slice(0, 12);
+        const elo = parseInt(row.elo, 10) || 0;
+        const stars = parseInt(row.stars, 10) || 0;
         const li = document.createElement("li");
-        li.textContent = `${i + 1}. ${it.nick} · ${it.elo} Elo`;
+        li.textContent = `${i + 1}. ${nick} · ${stars} ⭐ · ${elo} Elo`;
         kingsList.appendChild(li);
       }
     } catch {

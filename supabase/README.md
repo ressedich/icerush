@@ -13,6 +13,7 @@
 
 1. `supabase/schema.sql`
 2. `supabase/rls.sql`
+3. `supabase/rls_leaderboard.sql` — иначе вкладка **Короли** не сможет читать таблицу с клиента
 
 ## 3. Вход по email
 
