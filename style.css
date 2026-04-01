@@ -631,9 +631,59 @@ body.is-mobile .btn {
 }
 
 body.is-mobile .game-frame {
-  width: min(94vw, 880px);
-  max-width: none;
+  width: min(100vw - 20px, 880px);
+  max-width: 100%;
   margin: 0 auto;
+}
+
+body.is-mobile .game-frame:hover {
+  transform: none;
+  box-shadow: var(--shadow-md), var(--shadow-occlusion), 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+body:not(.theme-dark).is-mobile .game-frame:hover {
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+/* Матч: больше места под арену, без «обрезания» по высоте (iOS / Android) */
+body.game-active.is-mobile .shell {
+  min-height: 100dvh;
+  min-height: 100svh;
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+body.game-active.is-mobile .main-flow {
+  flex: 1;
+  min-height: 0;
+  padding-top: 6px;
+  padding-bottom: 8px;
+  align-items: stretch;
+}
+
+body.game-active.is-mobile .shell-footer {
+  display: none;
+}
+
+body.game-active.is-mobile #game.screen.active {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Ширина по доступной высоте: арена целиком влезает в экран */
+body.game-active.is-mobile .game-frame {
+  width: min(calc(100vw - 20px), calc((100svh - 108px) * 880 / 520));
+  max-height: min(calc(100svh - 108px), calc((100vw - 20px) * 520 / 880));
+}
+
+body.game-active.is-mobile .top-nav {
+  max-width: 100%;
 }
 
 body.is-mobile .inline {
@@ -907,6 +957,7 @@ body:not(.theme-dark) .ach-list {
 /* ——— Игровое поле — монолитный блок, без неоновой рамки ——— */
 .game-frame {
   width: min(96vw, 880px);
+  max-width: 100%;
   margin: 0 auto;
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -915,6 +966,7 @@ body:not(.theme-dark) .ach-list {
   position: relative;
   transition: box-shadow 0.4s var(--ease), transform 0.4s var(--ease);
   box-shadow: var(--shadow-md), var(--shadow-occlusion), 0 0 0 1px rgba(0, 0, 0, 0.5);
+  aspect-ratio: 880 / 520;
 }
 
 body:not(.theme-dark) .game-frame {
@@ -940,6 +992,9 @@ body:not(.theme-dark) .game-frame:hover {
   height: auto;
   cursor: none;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
   position: relative;
   z-index: 0;
 }

@@ -34,13 +34,14 @@
   }
   setupCanvasResolution();
 
-  // Device detection for layout tweaks (CSS can use body.is-mobile)
+  // Device detection for layout (CSS: body.is-mobile) и бейдж ввода в HUD
   function updateDeviceClass() {
-    const isMobile =
+    const coarse =
       (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
-      (window.matchMedia && window.matchMedia("(hover: none)").matches) ||
-      window.innerWidth < 720;
-    document.body.classList.toggle("is-mobile", !!isMobile);
+      (window.matchMedia && window.matchMedia("(hover: none)").matches);
+    const isMobile = !!coarse || window.innerWidth < 720;
+    document.body.classList.toggle("is-mobile", isMobile);
+    document.body.dataset.inputMode = coarse ? "touch" : "mouse";
   }
   updateDeviceClass();
   window.addEventListener("resize", () => {
@@ -345,6 +346,7 @@
       .filter(Boolean)
       .forEach((el) => el.classList.remove("active"));
     if (screens[name]) screens[name].classList.add("active");
+    document.body.classList.toggle("game-active", name === "game");
   }
 
   function randId(len = 10) {
@@ -666,6 +668,22 @@
   let pointerInCanvas = false;
   let wantsPointerLock = false;
 
+  function pauseHitRect() {
+    if (document.body.classList.contains("is-mobile")) {
+      return { x0: 4, x1: 58, y0: 4, y1: 50 };
+    }
+    return { x0: 10, x1: 48, y0: 8, y1: 44 };
+  }
+
+  function pointInPauseHit(p) {
+    const r = pauseHitRect();
+    return p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1;
+  }
+
+  function playerMagnet() {
+    return document.body.classList.contains("is-mobile") ? 0.38 : MAGNET;
+  }
+
   function canvasToGame(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const rw = Math.max(1, rect.width);
@@ -740,16 +758,36 @@
     },
     { passive: false }
   );
-  canvas.addEventListener("touchstart", (e) => {
-    ensureAudio();
-    const t = e.touches[0];
-    const p = canvasToGame(t.clientX, t.clientY);
-    clampMouseToPlayable(p);
-    pointerInCanvas = true;
+  canvas.addEventListener(
+    "touchstart",
+    (e) => {
+      e.preventDefault();
+      ensureAudio();
+      const t = e.touches[0];
+      const p = canvasToGame(t.clientX, t.clientY);
+      clampMouseToPlayable(p);
+      pointerInCanvas = true;
+    },
+    { passive: false }
+  );
+
+  canvas.addEventListener("pointerup", (e) => {
+    if (!isGameActive() || paused) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const p = canvasToGame(e.clientX, e.clientY);
+    if (pointInPauseHit(p)) {
+      try {
+        e.preventDefault();
+      } catch {
+        /* ignore */
+      }
+      openPauseOverlay();
+    }
   });
 
-  canvas.addEventListener("click", () => {
-    // A user gesture we can use to lock cursor during play
+  canvas.addEventListener("click", (e) => {
+    const p = canvasToGame(e.clientX, e.clientY);
+    if (pointInPauseHit(p)) return;
     requestGamePointerLock();
   });
 
@@ -1617,8 +1655,9 @@
         me.y += dy * k;
       }
     } else {
-      me.x += (target.x - me.x) * MAGNET;
-      me.y += (target.y - me.y) * MAGNET;
+      const mg = playerMagnet();
+      me.x += (target.x - me.x) * mg;
+      me.y += (target.y - me.y) * mg;
     }
     const c = clampStrikerSide(s, me.x, me.y);
     me.x = c.x;
@@ -1923,6 +1962,13 @@
     ctx.lineTo(W, barH - 0.5);
     ctx.stroke();
 
+    ctx.font = "700 7px Montserrat, system-ui, sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "top";
+    const modeLabel = document.body.dataset.inputMode === "touch" ? "СЕНСОР" : "ПК · МЫШЬ";
+    ctx.fillStyle = "rgba(201, 165, 116, 0.52)";
+    ctx.fillText(modeLabel, W - 8, 5);
+
     const bx = 10;
     const by = 9;
     const bw = 38;
@@ -1954,7 +2000,7 @@
     const sidePad = 58;
     const midGap = 86;
     const maxLeft = W / 2 - midGap - sidePad;
-    const maxRight = W / 2 - midGap - sidePad;
+    const maxRight = W / 2 - midGap - sidePad - 52;
 
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
@@ -2046,12 +2092,6 @@
     openPauseOverlay();
   });
 
-  canvas.addEventListener("click", (e) => {
-    const p = canvasToGame(e.clientX, e.clientY);
-    if (p.x >= 10 && p.x <= 48 && p.y >= 8 && p.y <= 44) {
-      openPauseOverlay();
-    }
-  });
 
   function step(ts) {
     if (!lastTs) lastTs = ts;
