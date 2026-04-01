@@ -185,11 +185,12 @@ body:not(.theme-dark) {
   object-fit: cover;
 }
 
-body.theme-dark .tg-icon--light {
+/* Тёмная тема — синяя иконка (лучше на тёмном фоне); светлая — чёрный круг на светлом */
+body.theme-dark .tg-icon--dark {
   display: none;
 }
 
-body:not(.theme-dark) .tg-icon--dark {
+body:not(.theme-dark) .tg-icon--light {
   display: none;
 }
 
