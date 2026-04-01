@@ -8,7 +8,6 @@ create table if not exists public.profiles (
   wins int not null default 0,
   owned_skins jsonb not null default '["default"]'::jsonb,
   equipped_skin text not null default 'default',
-  is_admin boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -106,81 +106,6 @@ async function supaUpsertProfile(row) {
   return true;
 }
 
-function isUuid(s) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim());
-}
-
-function escapeIlike(s) {
-  return String(s || "")
-    .replace(/\\/g, "\\\\")
-    .replace(/%/g, "\\%")
-    .replace(/_/g, "\\_");
-}
-
-async function supaSearchProfiles(query) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return [];
-  const base = `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/profiles`;
-  const t = String(query || "").trim();
-  if (!t) return [];
-  if (isUuid(t)) {
-    const url = `${base}?id=eq.${encodeURIComponent(t)}&select=*`;
-    const r = await fetch(url, { headers: supaRestHeaders() });
-    if (!r.ok) throw new Error(`search HTTP ${r.status}`);
-    return await r.json();
-  }
-  const pat = `%${escapeIlike(t)}%`;
-  const url = `${base}?nickname=ilike.${encodeURIComponent(pat)}&select=*&limit=25`;
-  const r = await fetch(url, { headers: supaRestHeaders() });
-  if (!r.ok) throw new Error(`search HTTP ${r.status}`);
-  return await r.json();
-}
-
-async function supaPatchProfileId(userId, patch) {
-  const url = `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`;
-  const r = await fetch(url, {
-    method: "PATCH",
-    headers: { ...supaRestHeaders(), Prefer: "return=representation" },
-    body: JSON.stringify(patch),
-  });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error(`patch ${r.status}: ${txt.slice(0, 200)}`);
-  }
-  const arr = await r.json();
-  return arr && arr[0] ? arr[0] : null;
-}
-
-async function supaDeleteAuthUser(userId) {
-  const url = `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/admin/users/${encodeURIComponent(userId)}`;
-  const r = await fetch(url, { method: "DELETE", headers: supaRestHeaders() });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error(`delete auth ${r.status}: ${txt.slice(0, 200)}`);
-  }
-}
-
-function asyncHandler(fn) {
-  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => res.status(500).json({ error: String(e.message || e) }));
-}
-
-async function requireAdmin(req, res, next) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return res.status(503).json({ error: "Server missing Supabase config" });
-  }
-  try {
-    const auth = String(req.headers.authorization || "");
-    const m = auth.match(/^Bearer\s+(.+)$/i);
-    if (!m) return res.status(401).json({ error: "Missing bearer token" });
-    const { userId } = await verifySupabaseJwt(m[1]);
-    const prof = await supaGetProfile(userId);
-    if (!prof || !prof.is_admin) return res.status(403).json({ error: "Admin only" });
-    req.adminUserId = userId;
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: String(e.message || e) });
-  }
-}
-
 // ---- Simple in-memory leaderboard (for demo / single instance) ----
 const kings = new Map(); // id -> { nick, elo, updatedAt }
 
@@ -619,105 +544,15 @@ function maybeStart(room) {
 // ---- HTTP + WS ----
 const app = express();
 app.use(express.json());
-app.use((req, res, next) => {
+app.use((_req, res, next) => {
   res.setHeader("access-control-allow-origin", "*");
-  res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type, authorization");
-  if (req.method === "OPTIONS") return res.sendStatus(204);
+  res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+  res.setHeader("access-control-allow-headers", "content-type");
   next();
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/kings", (_req, res) => res.json({ ok: true, ...topKings() }));
-
-// ---- Admin API (JWT + is_admin в profiles; мутации через service role) ----
-app.get("/admin/api/search", requireAdmin, asyncHandler(async (req, res) => {
-  const q = String(req.query.q || "");
-  const users = await supaSearchProfiles(q);
-  res.json({ ok: true, users });
-}));
-
-app.get("/admin/api/user/:id", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  const prof = await supaGetProfile(id);
-  if (!prof) return res.status(404).json({ error: "not found" });
-  res.json({ ok: true, profile: prof });
-}));
-
-app.patch("/admin/api/user/:id", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  const body = req.body || {};
-  const patch = {};
-  if (typeof body.nickname === "string") patch.nickname = body.nickname.trim().slice(0, 12) || "Игрок";
-  if (typeof body.elo === "number" && Number.isFinite(body.elo)) patch.elo = Math.max(0, Math.min(5000, Math.round(body.elo)));
-  if (typeof body.stars === "number" && Number.isFinite(body.stars)) patch.stars = Math.max(0, Math.round(body.stars));
-  if (typeof body.matches === "number" && Number.isFinite(body.matches)) patch.matches = Math.max(0, Math.round(body.matches));
-  if (typeof body.wins === "number" && Number.isFinite(body.wins)) patch.wins = Math.max(0, Math.round(body.wins));
-  if (Array.isArray(body.owned_skins)) patch.owned_skins = body.owned_skins.map(String);
-  if (typeof body.equipped_skin === "string") patch.equipped_skin = body.equipped_skin.slice(0, 32);
-  if (Object.keys(patch).length === 0) return res.status(400).json({ error: "empty patch" });
-  const row = await supaPatchProfileId(id, patch);
-  res.json({ ok: true, profile: row });
-}));
-
-app.post("/admin/api/user/:id/elo", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  const prof = await supaGetProfile(id);
-  if (!prof) return res.status(404).json({ error: "not found" });
-  let elo = prof.elo | 0;
-  if (req.body && typeof req.body.set === "number" && Number.isFinite(req.body.set)) {
-    elo = Math.max(0, Math.min(5000, Math.round(req.body.set)));
-  } else if (req.body && typeof req.body.delta === "number" && Number.isFinite(req.body.delta)) {
-    elo = Math.max(0, Math.min(5000, elo + Math.round(req.body.delta)));
-  } else {
-    return res.status(400).json({ error: "need set or delta" });
-  }
-  const row = await supaPatchProfileId(id, { elo });
-  res.json({ ok: true, profile: row });
-}));
-
-app.post("/admin/api/user/:id/stars", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  const delta = req.body && req.body.delta;
-  if (typeof delta !== "number" || !Number.isFinite(delta)) return res.status(400).json({ error: "need delta" });
-  const prof = await supaGetProfile(id);
-  if (!prof) return res.status(404).json({ error: "not found" });
-  const stars = Math.max(0, (prof.stars | 0) + Math.round(delta));
-  const row = await supaPatchProfileId(id, { stars });
-  res.json({ ok: true, profile: row });
-}));
-
-app.post("/admin/api/user/:id/skin/gold", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  const prof = await supaGetProfile(id);
-  if (!prof) return res.status(404).json({ error: "not found" });
-  const skins = Array.isArray(prof.owned_skins) ? [...prof.owned_skins.map(String)] : ["default"];
-  if (!skins.includes("default")) skins.unshift("default");
-  if (!skins.includes("gold")) skins.push("gold");
-  const row = await supaPatchProfileId(id, { owned_skins: skins });
-  res.json({ ok: true, profile: row });
-}));
-
-app.post("/admin/api/user/:id/grant-admin", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  if (id === req.adminUserId) return res.status(400).json({ error: "already admin" });
-  const row = await supaPatchProfileId(id, { is_admin: true });
-  res.json({ ok: true, profile: row });
-}));
-
-app.delete("/admin/api/user/:id", requireAdmin, asyncHandler(async (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!isUuid(id)) return res.status(400).json({ error: "bad id" });
-  if (id === req.adminUserId) return res.status(400).json({ error: "cannot delete self" });
-  await supaDeleteAuthUser(id);
-  res.json({ ok: true });
-}));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });

@@ -13,15 +13,6 @@ You need:
 Run SQL in Supabase SQL Editor:
 - `supabase/schema.sql`
 - `supabase/rls.sql`
-- `supabase/admin.sql` (колонка `is_admin` + защита от самовыдачи админки с клиента)
-
-### Админка в игре
-1. Выполни `admin.sql`.
-2. Выдай себе админа (подставь UUID из **Authentication → Users**):
-   ```sql
-   update public.profiles set is_admin = true where id = 'YOUR-USER-UUID';
-   ```
-3. Перезайди в игру — появится кнопка **«Админ»**. Запросы идут на тот же хост, что и WebSocket (Render), путь `/admin/api/...`.
 
 ### 4) (Optional) SMTP
 To improve email deliverability, configure SMTP in Supabase Auth settings.

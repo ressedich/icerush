@@ -45,7 +45,6 @@
     kings: document.getElementById("kings"),
     shop: document.getElementById("shop"),
     locker: document.getElementById("locker"),
-    admin: document.getElementById("admin"),
     game: document.getElementById("game"),
   };
   const authTitle = document.getElementById("authTitle");
@@ -153,13 +152,6 @@
   const lockerStars = document.getElementById("lockerStars");
   const lockerList = document.getElementById("lockerList");
   const btnBackFromLocker = document.getElementById("btnBackFromLocker");
-  const btnAdmin = document.getElementById("btnAdmin");
-  const adminSearchQ = document.getElementById("adminSearchQ");
-  const btnAdminSearch = document.getElementById("btnAdminSearch");
-  const adminSearchList = document.getElementById("adminSearchList");
-  const adminDetail = document.getElementById("adminDetail");
-  const adminMsg = document.getElementById("adminMsg");
-  const btnBackFromAdmin = document.getElementById("btnBackFromAdmin");
 
   const W = LOGICAL_W;
   const H = LOGICAL_H;
@@ -217,13 +209,12 @@
           stars: Math.max(0, parseInt(p.stars, 10) || 0), // "золотые шайбы"
           ownedSkins: Array.isArray(p.ownedSkins) ? p.ownedSkins.map(String) : ["default"],
           equippedSkin: typeof p.equippedSkin === "string" ? p.equippedSkin : "default",
-          isAdmin: !!p.isAdmin,
         };
       }
     } catch (e) {
       /* ignore */
     }
-    return { nickname: "Игрок", elo: 0, matches: 0, wins: 0, stars: 0, ownedSkins: ["default"], equippedSkin: "default", isAdmin: false };
+    return { nickname: "Игрок", elo: 0, matches: 0, wins: 0, stars: 0, ownedSkins: ["default"], equippedSkin: "default" };
   }
 
   function saveProfile() {
@@ -299,7 +290,6 @@
     profile.wins = parseInt(row.wins, 10) || 0;
     profile.ownedSkins = Array.isArray(row.owned_skins) ? row.owned_skins.map(String) : profile.ownedSkins;
     profile.equippedSkin = typeof row.equipped_skin === "string" ? row.equipped_skin : profile.equippedSkin;
-    profile.isAdmin = !!row.is_admin;
     ensureSkinInventory();
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
   }
@@ -532,7 +522,6 @@
     if (shopStars) shopStars.textContent = String(profile.stars || 0) + " ⭐";
     if (lockerStars) lockerStars.textContent = String(profile.stars || 0) + " ⭐";
     if (achList) renderAchievements();
-    if (btnAdmin) btnAdmin.classList.toggle("hidden", !profile.isAdmin);
   }
 
   // OTP UX: client-side 2 minute validity window
@@ -566,6 +555,36 @@
     if (expired) setAuthStatus("Код истёк (2 минуты). Нажми «Получить код» ещё раз.");
   }
 
+  let authSignOutStatusOverride = null;
+  let supabaseVisibilityListenerAdded = false;
+
+  function resetProfileAfterRemoteSignOut() {
+    try {
+      localStorage.removeItem(PROFILE_KEY);
+    } catch {
+      /* ignore */
+    }
+    const g = loadProfile();
+    profile.nickname = g.nickname;
+    profile.elo = g.elo;
+    profile.matches = g.matches;
+    profile.wins = g.wins;
+    profile.stars = g.stars;
+    profile.ownedSkins = g.ownedSkins;
+    profile.equippedSkin = g.equippedSkin;
+  }
+
+  function afterSignedOutUi(message) {
+    resetProfileAfterRemoteSignOut();
+    teardownOnline();
+    setScreen("auth");
+    applyAuthModeNone();
+    setAuthStatus(message);
+    clearOtpTimer();
+    otpSentAt = 0;
+    updateMenuUi();
+  }
+
   async function initSupabaseAuth() {
     if (!hasSupabaseConfig()) {
       setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL / ANON_KEY (см. supabase/README.md).");
@@ -573,11 +592,35 @@
     }
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    if (!supabaseVisibilityListenerAdded) {
+      supabaseVisibilityListenerAdded = true;
+      let visRevalidateTimer = null;
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "visible") return;
+        if (!sb) return;
+        if (visRevalidateTimer) clearTimeout(visRevalidateTimer);
+        visRevalidateTimer = setTimeout(async () => {
+          visRevalidateTimer = null;
+          if (!sb || !sbSession) return;
+          const { data: ud, error: ue } = await sb.auth.getUser();
+          if (ue || !ud?.user) {
+            authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
+            await sb.auth.signOut();
+          }
+        }, 400);
+      });
+    }
+
     const { data } = await sb.auth.getSession();
     sbSession = data?.session || null;
 
-    sb.auth.onAuthStateChange((_event, session) => {
+    sb.auth.onAuthStateChange((event, session) => {
       sbSession = session || null;
+      if (event === "SIGNED_OUT") {
+        const msg = authSignOutStatusOverride || "Вы вышли из аккаунта.";
+        authSignOutStatusOverride = null;
+        afterSignedOutUi(msg);
+      }
     });
 
     if (!sbSession) {
@@ -585,6 +628,14 @@
       applyAuthModeNone();
       setAuthStatus("Сначала выбери «Регистрация» или «Войти».");
       setOtpUi();
+      return true;
+    }
+
+    // Проверка на сервере: если пользователь удалён в Supabase, локальная сессия ещё жива — выкидываем
+    const { data: userData, error: userErr } = await sb.auth.getUser();
+    if (userErr || !userData?.user) {
+      authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
+      await sb.auth.signOut();
       return true;
     }
 
@@ -999,256 +1050,6 @@
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.host}/ws`;
   }
-
-  function httpApiBase() {
-    let o = String(WS_BACKEND_URL || "").trim();
-    if (!o) {
-      const p = window.location.protocol === "https:" ? "https:" : "http:";
-      return `${p}//${window.location.host}`;
-    }
-    o = o.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
-    o = o.replace(/\/ws\/?$/i, "").replace(/\/+$/, "");
-    return o;
-  }
-
-  function escapeHtml(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  async function adminFetch(path, init) {
-    const tok = getAccessToken();
-    if (!tok) throw new Error("Нет токена — войди в аккаунт.");
-    const r = await fetch(httpApiBase() + path, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + tok,
-        ...(init && init.headers),
-      },
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || r.status + " " + r.statusText);
-    return j;
-  }
-
-  let adminSelectedProfile = null;
-
-  function setAdminMsg(t) {
-    if (adminMsg) adminMsg.textContent = String(t || "");
-  }
-
-  function adminAchievementLines(p) {
-    const elo = p.elo | 0;
-    const m = p.matches | 0;
-    const w = p.wins | 0;
-    return [
-      { name: "Первый матч", ok: m >= 1 },
-      { name: "Первая победа", ok: w >= 1 },
-      { name: "Elo 250+", ok: elo >= 250 },
-      { name: "Elo 600+", ok: elo >= 600 },
-      { name: "Elo 1200+", ok: elo >= 1200 },
-      { name: "Elo 2000+", ok: elo >= 2000 },
-      { name: "10 побед", ok: w >= 10 },
-    ];
-  }
-
-  async function adminDeltaElo(delta) {
-    if (!adminSelectedProfile) return;
-    try {
-      setAdminMsg("…");
-      const j = await adminFetch(`/admin/api/user/${adminSelectedProfile.id}/elo`, {
-        method: "POST",
-        body: JSON.stringify({ delta }),
-      });
-      adminSelectedProfile = j.profile;
-      renderAdminDetail(j.profile);
-      setAdminMsg("Готово.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  async function adminDeltaStars(delta) {
-    if (!adminSelectedProfile) return;
-    try {
-      setAdminMsg("…");
-      const j = await adminFetch(`/admin/api/user/${adminSelectedProfile.id}/stars`, {
-        method: "POST",
-        body: JSON.stringify({ delta }),
-      });
-      adminSelectedProfile = j.profile;
-      renderAdminDetail(j.profile);
-      setAdminMsg("Готово.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  async function adminGiveGold() {
-    if (!adminSelectedProfile) return;
-    try {
-      setAdminMsg("…");
-      const j = await adminFetch(`/admin/api/user/${adminSelectedProfile.id}/skin/gold`, { method: "POST", body: "{}" });
-      adminSelectedProfile = j.profile;
-      renderAdminDetail(j.profile);
-      setAdminMsg("Скин выдан.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  async function adminGrantAdmin() {
-    if (!adminSelectedProfile) return;
-    if (!confirm("Выдать этому игроку права админа?")) return;
-    try {
-      setAdminMsg("…");
-      const j = await adminFetch(`/admin/api/user/${adminSelectedProfile.id}/grant-admin`, { method: "POST", body: "{}" });
-      adminSelectedProfile = j.profile;
-      renderAdminDetail(j.profile);
-      setAdminMsg("Игрок стал админом.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  async function adminReloadUser() {
-    if (!adminSelectedProfile) return;
-    try {
-      setAdminMsg("…");
-      const j = await adminFetch(`/admin/api/user/${adminSelectedProfile.id}`, { method: "GET" });
-      adminSelectedProfile = j.profile;
-      renderAdminDetail(j.profile);
-      setAdminMsg("Обновлено.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  async function adminDeleteUser() {
-    if (!adminSelectedProfile) return;
-    if (!confirm("Удалить аккаунт навсегда? Это нельзя отменить.")) return;
-    try {
-      setAdminMsg("…");
-      await adminFetch(`/admin/api/user/${adminSelectedProfile.id}`, { method: "DELETE" });
-      adminSelectedProfile = null;
-      if (adminDetail) {
-        adminDetail.classList.add("hidden");
-        adminDetail.innerHTML = "";
-      }
-      if (adminSearchList) adminSearchList.innerHTML = "";
-      setAdminMsg("Аккаунт удалён.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  function renderAdminDetail(p) {
-    if (!adminDetail || !p) return;
-    adminSelectedProfile = p;
-    const skins = Array.isArray(p.owned_skins) ? p.owned_skins.join(", ") : "—";
-    const ach = adminAchievementLines(p)
-      .map((x) => `<li>${x.ok ? "✓" : "○"} ${escapeHtml(x.name)}</li>`)
-      .join("");
-    const selfId = sbSession?.user?.id || "";
-    const isSelf = p.id === selfId;
-    adminDetail.classList.remove("hidden");
-    adminDetail.innerHTML =
-      `<div class="row"><div><div class="label">Ник</div><div class="value">${escapeHtml(p.nickname || "")}</div></div>` +
-      `<div class="right"><div class="label">Админ</div><div class="value">${p.is_admin ? "да" : "нет"}</div></div></div>` +
-      `<div class="row" style="margin-top:10px"><div><div class="label">UUID</div><div class="value" style="word-break:break-all;font-size:0.72rem">${escapeHtml(String(p.id))}</div></div></div>` +
-      `<div class="row" style="margin-top:10px"><div><div class="label">Elo</div><div class="value">${p.elo | 0}</div></div>` +
-      `<div class="right"><div class="label">⭐</div><div class="value">${p.stars | 0}</div></div></div>` +
-      `<div class="row" style="margin-top:10px"><div><div class="label">Матчи / победы</div><div class="value">${p.matches | 0} / ${p.wins | 0}</div></div></div>` +
-      `<div class="field" style="margin-top:10px"><div class="label">Скины</div><div class="value" style="font-size:0.85rem">${escapeHtml(skins)}</div></div>` +
-      `<div class="label" style="margin-top:12px">Достижения</div><ul class="ach-list" style="margin-top:6px">${ach}</ul>` +
-      `<div class="actions" style="margin-top:14px;flex-wrap:wrap">` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnEloMinus" style="max-width:120px">Elo −100</button>` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnEloPlus" style="max-width:120px">Elo +100</button>` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnStarMinus" style="max-width:120px">⭐ −5</button>` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnStarPlus" style="max-width:120px">⭐ +5</button>` +
-      `</div><div class="actions" style="margin-top:10px;flex-wrap:wrap">` +
-      `<button class="btn btn-accent" type="button" id="adminBtnGoldSkin" style="max-width:220px">Выдать скин «Золотой»</button>` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnGrantAdmin" style="max-width:220px"${isSelf ? " disabled" : ""}>Сделать админом</button>` +
-      `</div><div class="actions" style="margin-top:10px">` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnReload" style="max-width:180px">Обновить данные</button>` +
-      `<button class="btn btn-ghost" type="button" id="adminBtnDelete" style="max-width:220px;color:#c44"${isSelf ? " disabled" : ""}>Удалить аккаунт</button>` +
-      `</div>`;
-  }
-
-  adminDetail?.addEventListener("click", (ev) => {
-    const b = ev.target && ev.target.closest ? ev.target.closest("button") : null;
-    if (!b || !adminDetail.contains(b)) return;
-    const id = b.id;
-    if (id === "adminBtnEloMinus") adminDeltaElo(-100);
-    else if (id === "adminBtnEloPlus") adminDeltaElo(100);
-    else if (id === "adminBtnStarMinus") adminDeltaStars(-5);
-    else if (id === "adminBtnStarPlus") adminDeltaStars(5);
-    else if (id === "adminBtnGoldSkin") adminGiveGold();
-    else if (id === "adminBtnGrantAdmin") adminGrantAdmin();
-    else if (id === "adminBtnReload") adminReloadUser();
-    else if (id === "adminBtnDelete") adminDeleteUser();
-  });
-
-  async function runAdminSearch() {
-    const q = String(adminSearchQ?.value || "").trim();
-    if (!q) {
-      setAdminMsg("Введи ник или UUID.");
-      return;
-    }
-    try {
-      setAdminMsg("Поиск…");
-      if (adminSearchList) adminSearchList.innerHTML = "";
-      if (adminDetail) {
-        adminDetail.classList.add("hidden");
-        adminDetail.innerHTML = "";
-      }
-      adminSelectedProfile = null;
-      const j = await adminFetch("/admin/api/search?q=" + encodeURIComponent(q), { method: "GET" });
-      const users = Array.isArray(j.users) ? j.users : [];
-      if (!users.length) {
-        setAdminMsg("Никого не нашли.");
-        return;
-      }
-      for (const u of users) {
-        const li = document.createElement("li");
-        li.style.cursor = "pointer";
-        li.textContent = `${u.nickname || "—"} · Elo ${u.elo | 0} · ⭐${u.stars | 0} · ${String(u.id).slice(0, 8)}…`;
-        li.addEventListener("click", () => {
-          if (adminSearchList) {
-            for (const x of adminSearchList.querySelectorAll("li")) x.style.fontWeight = "800";
-          }
-          li.style.fontWeight = "900";
-          renderAdminDetail(u);
-          setAdminMsg("");
-        });
-        adminSearchList?.appendChild(li);
-      }
-      setAdminMsg(users.length === 1 ? "Найден 1 игрок — кликни по строке." : "Кликни по игроку в списке.");
-    } catch (e) {
-      setAdminMsg(String(e.message || e));
-    }
-  }
-
-  btnAdmin?.addEventListener("click", () => {
-    if (!profile.isAdmin) return;
-    setScreen("admin");
-    setAdminMsg("");
-    if (adminSearchList) adminSearchList.innerHTML = "";
-    if (adminDetail) {
-      adminDetail.classList.add("hidden");
-      adminDetail.innerHTML = "";
-    }
-    adminSelectedProfile = null;
-  });
-  btnBackFromAdmin?.addEventListener("click", () => setScreen("menu"));
-  btnAdminSearch?.addEventListener("click", runAdminSearch);
-  adminSearchQ?.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") runAdminSearch();
-  });
 
   function wsBackendCandidates() {
     const base = wsBackendBase();
