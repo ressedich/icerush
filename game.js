@@ -448,6 +448,9 @@
     side: "left", // left | right
     ws: null,
     connected: false,
+    seq: 0,
+    ack: 0,
+    pending: [],
   };
 
   // Snapshot interpolation buffer (render slightly in the past)
@@ -517,6 +520,9 @@
     online.inputRemote = { x: inner.right - 150, y: H / 2, t: 0 };
     online.phase = "idle";
     online.side = "left";
+    online.seq = 0;
+    online.ack = 0;
+    online.pending = [];
     try {
       clearInterval(online._pingTimer);
       online.ws?.close();
@@ -828,6 +834,29 @@
     } else {
       if (Number.isFinite(+s.sp)) scorePlayer = +s.sp;
       if (Number.isFinite(+s.sa)) scoreAi = +s.sa;
+    }
+
+    // ack for local prediction (server reports lastSeq it applied for each side)
+    const ack = online.side === "left" ? +s.ackL : +s.ackR;
+    if (Number.isFinite(ack) && ack > online.ack) {
+      online.ack = ack;
+      // drop acked inputs
+      online.pending = online.pending.filter((it) => (it.seq | 0) > online.ack);
+    }
+
+    // Reconcile local striker if we drift too far from server.
+    if (sLocal) {
+      const me = getLocalStriker();
+      const dx = (+sLocal.x - me.x);
+      const dy = (+sLocal.y - me.y);
+      const d = Math.hypot(dx, dy);
+      if (d > 38) {
+        me.x = +sLocal.x;
+        me.y = +sLocal.y;
+      } else {
+        me.x += dx * 0.10;
+        me.y += dy * 0.10;
+      }
     }
 
     netTarget.has = true;
@@ -1181,8 +1210,25 @@
     const s = localSide();
     const me = getLocalStriker();
     const target = clampStrikerSide(s, mouse.x, mouse.y);
-    me.x += (target.x - me.x) * MAGNET;
-    me.y += (target.y - me.y) * MAGNET;
+    // Online: move with the same speed model as server to reduce mismatch
+    // between what you see locally and what the server simulates.
+    if (online.enabled && online.phase === "playing") {
+      const dx = target.x - me.x;
+      const dy = target.y - me.y;
+      const d = Math.hypot(dx, dy);
+      const maxMove = 1900 * (1 / 60); // ~server STRIKER_MAX_SPEED * dt
+      if (d <= maxMove || d < 1e-6) {
+        me.x = target.x;
+        me.y = target.y;
+      } else {
+        const k = maxMove / d;
+        me.x += dx * k;
+        me.y += dy * k;
+      }
+    } else {
+      me.x += (target.x - me.x) * MAGNET;
+      me.y += (target.y - me.y) * MAGNET;
+    }
     const c = clampStrikerSide(s, me.x, me.y);
     me.x = c.x;
     me.y = c.y;
@@ -1597,13 +1643,15 @@
           }
         }
 
-        // server-authoritative: only send input when playing
+        // server-authoritative: send input when playing
         online.sendAcc += dt;
         // Higher input rate reduces perceived "lag" on hits.
         if (online.phase === "playing" && online.sendAcc > 0.016) {
           online.sendAcc = 0;
           const me = getLocalStriker();
-          wsSend({ t: "input", x: me.x, y: me.y });
+          online.seq = (online.seq + 1) | 0;
+          online.pending.push({ seq: online.seq, x: me.x, y: me.y, t: performance.now() });
+          wsSend({ t: "input", seq: online.seq, x: me.x, y: me.y });
         }
       }
     }

@@ -153,8 +153,8 @@ function goalCheck(state) {
 function makeInitialState() {
   return {
     puck: { x: W / 2, y: H / 2, vx: 0, vy: 0 },
-    left: { x: inner.left + 150, y: H / 2, vx: 0, vy: 0, tx: inner.left + 150, ty: H / 2, id: "", nick: "Left", elo: 0 },
-    right: { x: inner.right - 150, y: H / 2, vx: 0, vy: 0, tx: inner.right - 150, ty: H / 2, id: "", nick: "Right", elo: 0 },
+    left: { x: inner.left + 150, y: H / 2, vx: 0, vy: 0, tx: inner.left + 150, ty: H / 2, id: "", nick: "Left", elo: 0, lastSeq: 0 },
+    right: { x: inner.right - 150, y: H / 2, vx: 0, vy: 0, tx: inner.right - 150, ty: H / 2, id: "", nick: "Right", elo: 0, lastSeq: 0 },
     scoreL: 0,
     scoreR: 0,
     running: false,
@@ -362,6 +362,8 @@ function tick(room) {
         scoreL: st.scoreL,
         scoreR: st.scoreR,
         running: st.running,
+        ackL: st.left.lastSeq | 0,
+        ackR: st.right.lastSeq | 0,
       },
     });
   }
@@ -526,15 +528,18 @@ wss.on("connection", (ws, req) => {
     if (msg.t !== "input") return;
     const x = +msg.x;
     const y = +msg.y;
+    const seq = msg.seq == null ? 0 : (msg.seq | 0);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     if (side === "left") {
       const c = clampStrikerLeft(x, y);
       st.left.tx = c.x;
       st.left.ty = c.y;
+      if (seq > (st.left.lastSeq | 0)) st.left.lastSeq = seq;
     } else if (side === "right") {
       const c = clampStrikerRight(x, y);
       st.right.tx = c.x;
       st.right.ty = c.y;
+      if (seq > (st.right.lastSeq | 0)) st.right.lastSeq = seq;
     }
   });
 
