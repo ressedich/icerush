@@ -37,6 +37,7 @@
 
   const screens = {
     auth: document.getElementById("auth"),
+    nickpick: document.getElementById("nickpick"),
     menu: document.getElementById("menu"),
     search: document.getElementById("search"),
     profile: document.getElementById("profile"),
@@ -46,11 +47,18 @@
     locker: document.getElementById("locker"),
     game: document.getElementById("game"),
   };
+  const authTitle = document.getElementById("authTitle");
+  const authSubtitle = document.getElementById("authSubtitle");
   const authEmail = document.getElementById("authEmail");
   const authCode = document.getElementById("authCode");
+  const btnAuthModeRegister = document.getElementById("btnAuthModeRegister");
+  const btnAuthModeLogin = document.getElementById("btnAuthModeLogin");
   const btnAuthSendCode = document.getElementById("btnAuthSendCode");
   const btnAuthVerify = document.getElementById("btnAuthVerify");
   const authStatus = document.getElementById("authStatus");
+  const nickPickInput = document.getElementById("nickPickInput");
+  const btnNickPickSave = document.getElementById("btnNickPickSave");
+  const nickPickStatus = document.getElementById("nickPickStatus");
   const navEloChip = document.getElementById("navEloChip");
   const menuElo = document.getElementById("menuElo");
   const nickView = document.getElementById("nickView");
@@ -193,6 +201,9 @@
   function setAuthStatus(txt) {
     if (authStatus) authStatus.textContent = String(txt || "");
   }
+  function setNickPickStatus(txt) {
+    if (nickPickStatus) nickPickStatus.textContent = String(txt || "");
+  }
 
   function getAccessToken() {
     return (sbSession && sbSession.access_token) || "";
@@ -253,16 +264,16 @@
       return true;
     }
 
-    // First login: migrate localStorage profile into DB
+    // First login: НЕ тащим старый localStorage (до регистрации) — только чистый профиль в БД
     const payload = {
       id: uid,
-      nickname: profile.nickname,
-      elo: profile.elo | 0,
-      stars: profile.stars | 0,
-      matches: profile.matches | 0,
-      wins: profile.wins | 0,
-      owned_skins: Array.isArray(profile.ownedSkins) ? profile.ownedSkins : ["default"],
-      equipped_skin: String(profile.equippedSkin || "default"),
+      nickname: "Игрок",
+      elo: 0,
+      stars: 0,
+      matches: 0,
+      wins: 0,
+      owned_skins: ["default"],
+      equipped_skin: "default",
     };
     const { error: upErr } = await sb.from("profiles").insert(payload);
     if (upErr) {
@@ -271,8 +282,58 @@
       if (rows2 && rows2[0]) applyDbProfile(rows2[0]);
       return false;
     }
+    applyDbProfile(payload);
     return true;
   }
+
+  // -------- auth mode (register / login) --------
+  /** @type {"register"|"login"} */
+  let authMode = "register";
+  function applyAuthMode(mode) {
+    authMode = mode === "login" ? "login" : "register";
+    const isReg = authMode === "register";
+    if (btnAuthModeRegister) btnAuthModeRegister.classList.toggle("btn-accent", isReg);
+    if (btnAuthModeRegister) btnAuthModeRegister.classList.toggle("btn-ghost", !isReg);
+    if (btnAuthModeLogin) btnAuthModeLogin.classList.toggle("btn-accent", !isReg);
+    if (btnAuthModeLogin) btnAuthModeLogin.classList.toggle("btn-ghost", isReg);
+    if (authTitle) authTitle.textContent = isReg ? "Регистрация" : "Вход";
+    if (authSubtitle)
+      authSubtitle.textContent = isReg
+        ? "Введи email — мы пришлём код. После входа нужно придумать ник."
+        : "Введи email — мы пришлём код для входа на другом устройстве.";
+    if (btnAuthVerify) btnAuthVerify.textContent = isReg ? "Завершить регистрацию" : "Войти";
+  }
+  applyAuthMode("register");
+  btnAuthModeRegister?.addEventListener("click", () => applyAuthMode("register"));
+  btnAuthModeLogin?.addEventListener("click", () => applyAuthMode("login"));
+
+  function needsNickname() {
+    const nm = String(profile.nickname || "").trim();
+    return !nm || nm.toLowerCase() === "игрок";
+  }
+
+  async function openNicknamePick() {
+    setScreen("nickpick");
+    if (nickPickInput) nickPickInput.value = "";
+    setNickPickStatus("Придумай ник и нажми “Сохранить”.");
+  }
+
+  btnNickPickSave?.addEventListener("click", async () => {
+    const nm = String(nickPickInput?.value || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 12);
+    if (!nm) {
+      setNickPickStatus("Ник не может быть пустым.");
+      return;
+    }
+    profile.nickname = nm;
+    saveProfile();
+    // ensure DB updated immediately
+    if (sb && sbSession?.user?.id) await syncProfileToDb();
+    updateMenuUi();
+    setScreen("menu");
+  });
 
   function expectedScore(ra, rb) {
     return 1 / (1 + Math.pow(10, (rb - ra) / 400));
@@ -438,7 +499,8 @@
 
     await loadOrCreateDbProfile();
     updateMenuUi();
-    setScreen("menu");
+    if (needsNickname()) await openNicknamePick();
+    else setScreen("menu");
     return true;
   }
 
@@ -505,7 +567,13 @@
     sbSession = data?.session || null;
     await loadOrCreateDbProfile();
     updateMenuUi();
-    setScreen("menu");
+    if (authMode === "register" && needsNickname()) {
+      await openNicknamePick();
+    } else {
+      // even on login, force pick if profile has no nick (safety)
+      if (needsNickname()) await openNicknamePick();
+      else setScreen("menu");
+    }
   });
 
   function skinLabel(id) {

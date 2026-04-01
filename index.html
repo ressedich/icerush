@@ -22,9 +22,13 @@
       <main class="main-flow">
         <section id="auth" class="screen">
           <div class="panel">
-            <h1 class="title">Вход</h1>
-            <p class="subtitle">Введи email — мы отправим код (OTP). Код привяжет почту к аккаунту.</p>
+            <h1 class="title" id="authTitle">Аккаунт</h1>
+            <p class="subtitle" id="authSubtitle">Выбери режим и войди по email-коду.</p>
             <div class="card">
+              <div class="actions" style="margin-top:0">
+                <button class="btn btn-accent" id="btnAuthModeRegister" style="max-width:240px">Регистрация</button>
+                <button class="btn btn-ghost" id="btnAuthModeLogin" style="max-width:240px">Войти</button>
+              </div>
               <div class="field">
                 <div class="label">Email</div>
                 <input class="input" id="authEmail" placeholder="name@example.com" inputmode="email" autocomplete="email" />
@@ -42,6 +46,23 @@
               </div>
 
               <div class="howto" id="authStatus" style="margin-top:10px">—</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="nickpick" class="screen">
+          <div class="panel">
+            <h1 class="title">Придумай ник</h1>
+            <p class="subtitle">Ник обязателен — он будет виден в онлайне и в “Королях”.</p>
+            <div class="card">
+              <div class="field">
+                <div class="label">Ник (до 12 символов)</div>
+                <input class="input" id="nickPickInput" placeholder="Например: FrostKing" maxlength="12" />
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-accent" id="btnNickPickSave" style="max-width:240px">Сохранить ник</button>
+              </div>
+              <div class="howto" id="nickPickStatus" style="margin-top:10px">—</div>
             </div>
           </div>
         </section>
