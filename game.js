@@ -452,9 +452,10 @@
 
   // Snapshot interpolation buffer (render slightly in the past)
   const net = {
-    buf: [], // { ts:number(ms server), s:state, recv:number(ms perf) }
-    offsetMs: 0, // clientEpochMs - serverEpochMs (estimated)
-    delayMs: 110, // interpolation delay
+    buf: [], // { tick:number, s:state }
+    latestTick: 0,
+    renderTick: 0,
+    lagTicks: 6, // ~100ms at 60Hz
   };
 
   const netStats = {
@@ -463,7 +464,6 @@
     rttMs: 0,
     jitterMs: 0,
     lastRtt: 0,
-    offsetMs: 0, // refined via ping
   };
 
   // -------- matchmaking (quick play vs real players) --------
@@ -724,23 +724,17 @@
         } else if (msg.t === "wait") {
           online.phase = "waiting";
         } else if (msg.t === "pong") {
-          // Use epoch time to match server Date.now()
           const now = Date.now();
           const sent = +msg.c;
-          const serverMs = +msg.s;
-          if (Number.isFinite(sent) && Number.isFinite(serverMs)) {
+          if (Number.isFinite(sent)) {
             const rtt = Math.max(0, now - sent);
             netStats.rttMs += (rtt - netStats.rttMs) * 0.15;
             const j = Math.abs(rtt - (netStats.lastRtt || rtt));
             netStats.jitterMs += (j - netStats.jitterMs) * 0.12;
             netStats.lastRtt = rtt;
-            const off = (now - rtt * 0.5) - serverMs;
-            netStats.offsetMs += (off - netStats.offsetMs) * 0.12;
-            net.offsetMs += (netStats.offsetMs - net.offsetMs) * 0.25;
-            net.delayMs = clamp(90 + netStats.jitterMs * 2.2, 90, 190);
           }
         } else if (msg.t === "state" && msg.s) {
-          applyNetState(msg.s, msg.ts);
+          applyNetState(msg.s, msg.tick);
         } else if (msg.t === "end") {
           paused = true;
           const localWin = online.side === "left" ? !!msg.leftWon : !msg.leftWon;
@@ -782,7 +776,7 @@
     };
   }
 
-  function applyNetState(s, serverTs) {
+  function applyNetState(s, tick) {
     if (!s) return;
     // smooth network state to avoid jitter on high ping
     if (!online.enabled) return;
@@ -840,13 +834,11 @@
     netTarget.t = performance.now();
     netTarget.recvAt = netTarget.t;
 
-    // snapshot buffer for time-based interpolation
-    const recv = Date.now();
-    const ts = Number.isFinite(+serverTs) ? +serverTs : Date.now();
-    const sampleOffset = recv - ts;
-    net.offsetMs += (sampleOffset - net.offsetMs) * 0.08;
-    net.buf.push({ ts, s, recv });
-    if (net.buf.length > 60) net.buf.splice(0, net.buf.length - 60);
+    // snapshot buffer for tick-based interpolation (no clock sync needed)
+    const tk = Number.isFinite(+tick) ? (+tick | 0) : (net.latestTick | 0);
+    if (tk > net.latestTick) net.latestTick = tk;
+    net.buf.push({ tick: tk, s });
+    if (net.buf.length > 120) net.buf.splice(0, net.buf.length - 120);
 
     // gentle correction for local (to reduce drift without snapping)
     local.x += (netTarget.local.x - local.x) * 0.08;
@@ -1544,19 +1536,18 @@
         for (let i = 0; i < 3; i++) enforcePuckBounds();
         goalCheck();
       } else {
-        // time-based interpolation: render slightly in the past for smoothness
-        // Render server time using epoch clock to avoid seconds of lag
-        // (server sends Date.now() timestamps).
-        const now = Date.now();
-        const targetServerTime = (now - net.offsetMs) - net.delayMs;
+        // tick-based interpolation (no clock sync, stable under jitter)
+        if (net.buf.length >= 2 && net.latestTick > 0) {
+          const desired = Math.max(0, net.latestTick - net.lagTicks);
+          if (!net.renderTick) net.renderTick = desired;
+          net.renderTick = Math.min(desired, net.renderTick + dt * 60);
 
-        if (net.buf.length >= 2) {
-          // find snapshots around targetServerTime
+          // find snapshots around renderTick
           let a = null;
           let b = null;
           for (let i = net.buf.length - 1; i >= 0; i--) {
             const cur = net.buf[i];
-            if (cur.ts <= targetServerTime) {
+            if (cur.tick <= net.renderTick) {
               a = cur;
               b = net.buf[Math.min(net.buf.length - 1, i + 1)];
               break;
@@ -1568,13 +1559,12 @@
           }
           if (!b) b = a;
 
-          const dtS = Math.max(1, (b.ts - a.ts));
-          const t = clamp((targetServerTime - a.ts) / dtS, 0, 1);
+          const dtT = Math.max(1, (b.tick - a.tick));
+          const t = clamp((net.renderTick - a.tick) / dtT, 0, 1);
 
           const sA = a.s;
           const sB = b.s;
 
-          // choose remote state based on side
           const aLocal = online.side === "left" ? sA.left : sA.right;
           const aRemote = online.side === "left" ? sA.right : sA.left;
           const bLocal = online.side === "left" ? sB.left : sB.right;
@@ -1589,10 +1579,9 @@
           }
 
           if (aLocal && bLocal) {
-            // very gentle local correction to avoid drift without visible lag
             const me = getLocalStriker();
-            me.x += ((aLocal.x + (bLocal.x - aLocal.x) * t) - me.x) * 0.06;
-            me.y += ((aLocal.y + (bLocal.y - aLocal.y) * t) - me.y) * 0.06;
+            me.x += ((aLocal.x + (bLocal.x - aLocal.x) * t) - me.x) * 0.08;
+            me.y += ((aLocal.y + (bLocal.y - aLocal.y) * t) - me.y) * 0.08;
           }
 
           if (sA.puck && sB.puck) {
@@ -1606,18 +1595,6 @@
             scorePlayer = online.side === "left" ? +sB.scoreL : +sB.scoreR;
             scoreAi = online.side === "left" ? +sB.scoreR : +sB.scoreL;
           }
-        } else if (netTarget.has) {
-          // fallback: old smoothing + small extrapolation
-          const age = Math.max(0, Math.min(0.12, (performance.now() - (netTarget.recvAt || netTarget.t || 0)) / 1000));
-          const px = netTarget.puck.x + netTarget.puck.vx * age;
-          const py = netTarget.puck.y + netTarget.puck.vy * age;
-          puck.x += (px - puck.x) * 0.45;
-          puck.y += (py - puck.y) * 0.45;
-          puck.vx += (netTarget.puck.vx - puck.vx) * 0.30;
-          puck.vy += (netTarget.puck.vy - puck.vy) * 0.30;
-          const r = getRemoteStriker();
-          r.x += (netTarget.remote.x - r.x) * 0.30;
-          r.y += (netTarget.remote.y - r.y) * 0.30;
         }
 
         // server-authoritative: only send input when playing

@@ -35,6 +35,8 @@ const REST = 0.92;
 const FRICTION = 0.9982;
 const PUCK_MAX_SPEED = 900;
 const STRIKER_MAX_SPEED = 1900; // px/s, server-side cap for responsiveness
+const SIM_HZ = 60;
+const SIM_DT = 1 / SIM_HZ;
 
 const inner = {
   left: MARGIN + BORDER,
@@ -197,6 +199,8 @@ function getRoom(code) {
       lastTick: Date.now(),
       tickTimer: null,
       broadcastAcc: 0,
+      simAcc: 0,
+      simTick: 0,
     };
     rooms.set(code, r);
   }
@@ -233,22 +237,12 @@ function broadcast(room, obj) {
   }
 }
 
-function tick(room) {
-  const now = Date.now();
-  let dt = (now - room.lastTick) / 1000;
-  room.lastTick = now;
-  dt = Math.min(0.05, Math.max(1 / 120, dt));
-
+function simStep(room, dt) {
   const st = room.state;
-  if (!st.running || st.ended) {
-    room.broadcastAcc = 0;
-    return;
-  }
+  if (!st.running || st.ended) return;
 
-  // Move strikers with speed cap; compute velocity from this tick's movement
   const l = st.left;
   const r = st.right;
-  const safeDt = dt < 1e-4 ? 1 / 60 : dt;
   const l0x = l.x;
   const l0y = l.y;
   const r0x = r.x;
@@ -259,7 +253,7 @@ function tick(room) {
     const dx = lt.x - l.x;
     const dy = lt.y - l.y;
     const d = Math.hypot(dx, dy);
-    const maxMove = STRIKER_MAX_SPEED * safeDt;
+    const maxMove = STRIKER_MAX_SPEED * dt;
     if (d <= maxMove || d < 1e-6) {
       l.x = lt.x;
       l.y = lt.y;
@@ -269,13 +263,12 @@ function tick(room) {
       l.y += dy * k;
     }
   }
-
   const rt = clampStrikerRight(r.tx, r.ty);
   {
     const dx = rt.x - r.x;
     const dy = rt.y - r.y;
     const d = Math.hypot(dx, dy);
-    const maxMove = STRIKER_MAX_SPEED * safeDt;
+    const maxMove = STRIKER_MAX_SPEED * dt;
     if (d <= maxMove || d < 1e-6) {
       r.x = rt.x;
       r.y = rt.y;
@@ -286,12 +279,11 @@ function tick(room) {
     }
   }
 
-  l.vx = (l.x - l0x) / safeDt;
-  l.vy = (l.y - l0y) / safeDt;
-  r.vx = (r.x - r0x) / safeDt;
-  r.vy = (r.y - r0y) / safeDt;
+  l.vx = (l.x - l0x) / dt;
+  l.vy = (l.y - l0y) / dt;
+  r.vx = (r.x - r0x) / dt;
+  r.vy = (r.y - r0y) / dt;
 
-  // puck integration (substeps)
   const puck = st.puck;
   const travel = Math.hypot(puck.vx * dt, puck.vy * dt);
   const sub = Math.min(40, Math.max(1, Math.ceil(travel / Math.max(2.6, PUCK_R * 0.22))));
@@ -306,7 +298,6 @@ function tick(room) {
   puck.vx *= FRICTION;
   puck.vy *= FRICTION;
 
-  // goal
   const g = goalCheck(st);
   if (g === +1) {
     st.scoreL++;
@@ -320,7 +311,6 @@ function tick(room) {
     st.running = false;
     const leftWon = st.scoreL > st.scoreR;
     broadcast(room, { t: "end", leftWon });
-    // update leaderboard (best elo)
     const lId = l.id;
     const rId = r.id;
     if (lId) {
@@ -332,15 +322,39 @@ function tick(room) {
       if (!prev || (r.elo | 0) >= (prev.elo | 0)) kings.set(rId, { nick: r.nick, elo: r.elo | 0, updatedAt: Date.now() });
     }
   }
+}
 
-  // broadcast state ~20hz
-  room.broadcastAcc += dt;
-  // ~30Hz to reduce visible jitter on higher ping
-  if (room.broadcastAcc >= 0.033) {
+function tick(room) {
+  const now = Date.now();
+  let frameDt = (now - room.lastTick) / 1000;
+  room.lastTick = now;
+  frameDt = Math.min(0.1, Math.max(0, frameDt));
+
+  const st = room.state;
+  if (!st.running || st.ended) {
     room.broadcastAcc = 0;
+    room.simAcc = 0;
+    return;
+  }
+
+  room.simAcc += frameDt;
+  // avoid spiral of death
+  room.simAcc = Math.min(room.simAcc, 0.25);
+  while (room.simAcc >= SIM_DT) {
+    room.simAcc -= SIM_DT;
+    room.simTick++;
+    simStep(room, SIM_DT);
+  }
+
+  room.broadcastAcc += frameDt;
+  if (room.broadcastAcc >= 1 / 30) {
+    room.broadcastAcc = 0;
+    const l = st.left;
+    const r = st.right;
+    const puck = st.puck;
     broadcast(room, {
       t: "state",
-      ts: Date.now(),
+      tick: room.simTick,
       s: {
         puck: { x: puck.x, y: puck.y, vx: puck.vx, vy: puck.vy },
         left: { x: l.x, y: l.y, nick: l.nick, elo: l.elo },
