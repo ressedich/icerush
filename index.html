@@ -22,10 +22,12 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <span class="brand-text">ICE RUSH</span>
         </div>
-        <button class="btn btn-ghost btn-small" id="btnTheme" type="button" title="Сменить тему оформления">
-          Тёмная
-        </button>
-        <div class="nav-chip" id="navEloChip" title="Ваш Elo">Elo 0</div>
+        <div class="top-nav-end">
+          <button class="btn btn-ghost btn-small" id="btnTheme" type="button" title="Сменить тему оформления">
+            Тёмная
+          </button>
+          <div class="nav-chip" id="navEloChip" title="Ваш Elo">Elo 0</div>
+        </div>
       </header>
 
       <main class="main-flow">
@@ -102,9 +104,9 @@
               <span>Арена: <strong id="searchArena">—</strong></span>
               <span>Диапазон: <strong id="searchRange">—</strong></span>
             </div>
-            <div class="actions" style="margin-top:10px">
-              <button class="btn btn-accent" id="btnSearchPlayers" style="max-width:240px">Искать игроков</button>
-              <button class="btn btn-ghost" id="btnSearchBots" style="max-width:240px">Играть с ботом</button>
+            <div class="actions search-actions">
+              <button class="btn btn-accent" id="btnSearchPlayers" type="button">Искать игроков</button>
+              <button class="btn btn-ghost" id="btnSearchBots" type="button">Играть с ботом</button>
             </div>
             <div class="spinner" aria-hidden="true"></div>
             <div class="status" id="searchStatus">Подключение…</div>

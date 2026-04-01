@@ -1,6 +1,8 @@
 /* Ice Rush — UI «dark luxury» (интерьер: матовый графит + тёплый свет + дерево) */
 
 :root {
+  --panel-max: 460px;
+  --search-col: 300px;
   /* База — антрацит, как стены кухни */
   --bg-void: #080808;
   --bg-deep: #0e0e0e;
@@ -152,11 +154,16 @@ body.is-mobile .shell {
   padding: 10px 12px 24px;
 }
 
-/* ——— Шапка (как верхний ряд фасада) ——— */
+/* ——— Шапка: та же ширина, что у основной панели меню ——— */
 .top-nav {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  width: 100%;
+  max-width: var(--panel-max);
+  margin-left: auto;
+  margin-right: auto;
+  align-self: center;
   padding: 12px 16px;
   border-radius: var(--radius);
   background: var(--surface);
@@ -165,6 +172,25 @@ body.is-mobile .shell {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   position: relative;
+}
+
+.top-nav-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.top-nav-end .btn-small {
+  flex-shrink: 0;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.top-nav-end .nav-chip {
+  flex-shrink: 0;
 }
 
 /* Тонкая линия «подсветки» снизу — один тон, без радуги */
@@ -238,6 +264,9 @@ body.is-mobile .shell {
   border: 1px solid var(--line-panel);
   color: var(--text-muted);
   box-shadow: var(--shadow-inset);
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
 }
 
 body:not(.theme-dark) .nav-chip {
@@ -266,7 +295,7 @@ body:not(.theme-dark) .nav-chip {
 
 .panel {
   width: 100%;
-  max-width: 460px;
+  max-width: var(--panel-max);
   margin: 0 auto;
   background: var(--surface);
   border: 1px solid var(--line-panel);
@@ -535,6 +564,7 @@ body:not(.theme-dark) .input {
 
 body.is-mobile .top-nav {
   padding: 10px 12px;
+  max-width: min(var(--panel-max), 100%);
 }
 
 body.is-mobile .panel {
@@ -665,11 +695,43 @@ body:not(.theme-dark) .btn-ghost:hover {
   z-index: 1;
 }
 
-.screen#search .actions,
-#search .actions {
-  max-width: 300px;
+/* Поиск матча: одна колонка по центру — заголовок, мета и кнопки одной ширины */
+#search .panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#search .panel > .title,
+#search .panel > .search-meta,
+#search .panel > .search-actions,
+#search .panel > .spinner,
+#search .panel > .status,
+#search .panel > .log,
+#search .panel > .found {
+  width: 100%;
+  max-width: var(--search-col);
   margin-left: auto;
   margin-right: auto;
+}
+
+#search .panel > .title {
+  text-align: left;
+  align-self: center;
+}
+
+#search .search-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+#search .search-actions .btn {
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .spinner {
