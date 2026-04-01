@@ -46,6 +46,7 @@
                 <button class="btn btn-accent" id="btnFind">Найти игру</button>
                 <button class="btn btn-ghost" id="btnOnline">Онлайн 1v1</button>
                 <button class="btn btn-ghost" id="btnShop">Магазин</button>
+                <button class="btn btn-ghost" id="btnLocker">Шкафчик</button>
                 <button class="btn btn-ghost" id="btnKings">Короли</button>
                 <button class="btn btn-ghost" id="btnProfile">Профиль</button>
                 <button class="btn btn-ghost" id="btnHowto">Как играть</button>
@@ -188,10 +189,36 @@
                 </div>
               </div>
               <div class="howto" style="margin-top:10px">
-                Идея: за победы ты получаешь ⭐. Потом за ⭐ можно будет покупать скины/эффекты.
+                За победы ты получаешь ⭐. Тест: купи скин <b>ЗОЛОТОЙ</b> за 20⭐.
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-accent" id="btnBuyGold">Купить “ЗОЛОТОЙ” · 20 ⭐</button>
               </div>
               <div class="actions" style="margin-top:12px">
                 <button class="btn btn-ghost" id="btnBackFromShop">Назад</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="locker" class="screen">
+          <div class="panel">
+            <h2 class="title small">Шкафчик</h2>
+            <p class="subtitle">Выбери скин, который будет в матчах</p>
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="label">Текущий</div>
+                  <div class="value" id="lockerEquipped">—</div>
+                </div>
+                <div class="right">
+                  <div class="label">⭐</div>
+                  <div class="value" id="lockerStars">0 ⭐</div>
+                </div>
+              </div>
+              <ul class="log" id="lockerList"></ul>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-ghost" id="btnBackFromLocker">Назад</button>
               </div>
             </div>
           </div>

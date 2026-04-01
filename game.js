@@ -41,6 +41,8 @@
     profile: document.getElementById("profile"),
     online: document.getElementById("online"),
     kings: document.getElementById("kings"),
+    shop: document.getElementById("shop"),
+    locker: document.getElementById("locker"),
     game: document.getElementById("game"),
   };
   const navEloChip = document.getElementById("navEloChip");
@@ -53,6 +55,7 @@
   const btnHowto = document.getElementById("btnHowto");
   const btnProfile = document.getElementById("btnProfile");
   const btnShop = document.getElementById("btnShop");
+  const btnLocker = document.getElementById("btnLocker");
   const btnBackFromProfile = document.getElementById("btnBackFromProfile");
   const btnTheme = document.getElementById("btnTheme");
   const howto = document.getElementById("howto");
@@ -90,6 +93,11 @@
   // shop ui
   const shopStars = document.getElementById("shopStars");
   const btnBackFromShop = document.getElementById("btnBackFromShop");
+  const btnBuyGold = document.getElementById("btnBuyGold");
+  const lockerEquipped = document.getElementById("lockerEquipped");
+  const lockerStars = document.getElementById("lockerStars");
+  const lockerList = document.getElementById("lockerList");
+  const btnBackFromLocker = document.getElementById("btnBackFromLocker");
 
   const W = LOGICAL_W;
   const H = LOGICAL_H;
@@ -145,12 +153,14 @@
           matches: parseInt(p.matches, 10) || 0,
           wins: parseInt(p.wins, 10) || 0,
           stars: Math.max(0, parseInt(p.stars, 10) || 0), // "золотые шайбы"
+          ownedSkins: Array.isArray(p.ownedSkins) ? p.ownedSkins.map(String) : ["default"],
+          equippedSkin: typeof p.equippedSkin === "string" ? p.equippedSkin : "default",
         };
       }
     } catch (e) {
       /* ignore */
     }
-    return { nickname: "Игрок", elo: 0, matches: 0, wins: 0, stars: 0 };
+    return { nickname: "Игрок", elo: 0, matches: 0, wins: 0, stars: 0, ownedSkins: ["default"], equippedSkin: "default" };
   }
 
   function saveProfile() {
@@ -254,7 +264,7 @@
   // Netlify online mode uses Functions + Blobs for signaling
 
   function updateMenuUi() {
-    navEloChip.textContent = "Elo " + profile.elo;
+    navEloChip.textContent = "⭐ " + (profile.stars || 0) + " · Elo " + profile.elo;
     menuElo.textContent = String(profile.elo);
     nickView.textContent = profile.nickname;
     arenaView.textContent = arenaFor(profile.elo);
@@ -263,7 +273,41 @@
     if (profMatches) profMatches.textContent = String(profile.matches);
     if (profWins) profWins.textContent = String(profile.wins);
     if (shopStars) shopStars.textContent = String(profile.stars || 0) + " ⭐";
+    if (lockerStars) lockerStars.textContent = String(profile.stars || 0) + " ⭐";
     if (achList) renderAchievements();
+  }
+
+  function skinLabel(id) {
+    return id === "gold" ? "ЗОЛОТОЙ" : "Обычный";
+  }
+
+  function ensureSkinInventory() {
+    if (!Array.isArray(profile.ownedSkins) || !profile.ownedSkins.length) profile.ownedSkins = ["default"];
+    if (!profile.ownedSkins.includes("default")) profile.ownedSkins.unshift("default");
+    if (typeof profile.equippedSkin !== "string" || !profile.equippedSkin) profile.equippedSkin = "default";
+    if (!profile.ownedSkins.includes(profile.equippedSkin)) profile.equippedSkin = "default";
+  }
+
+  function renderLocker() {
+    if (!lockerList) return;
+    ensureSkinInventory();
+    lockerList.innerHTML = "";
+    if (lockerEquipped) lockerEquipped.textContent = skinLabel(profile.equippedSkin);
+    const skins = profile.ownedSkins.slice();
+    for (const id of skins) {
+      const li = document.createElement("li");
+      const isEq = id === profile.equippedSkin;
+      li.textContent = (isEq ? "✓ " : "") + skinLabel(id);
+      li.style.cursor = "pointer";
+      li.style.fontWeight = isEq ? "900" : "800";
+      li.onclick = () => {
+        profile.equippedSkin = id;
+        saveProfile();
+        updateMenuUi();
+        renderLocker();
+      };
+      lockerList.appendChild(li);
+    }
   }
 
   function renderAchievements() {
@@ -1437,14 +1481,20 @@
   }
 
   function drawStriker(s, color) {
+    // Apply equipped skin (local striker only)
+    const isLocal = s === getLocalStriker();
+    const skin = isLocal ? String(profile.equippedSkin || "default") : "default";
+    const base = skin === "gold" ? "#d7a11b" : color;
+    const hi = skin === "gold" ? "#ffe08a" : color === "#d42c3a" ? "#ff8b8b" : "#7cc3ff";
+
     const g = ctx.createRadialGradient(s.x - 10, s.y - 10, 2, s.x, s.y, STRIKER_R);
-    g.addColorStop(0, color === "#d42c3a" ? "#ff8b8b" : "#7cc3ff");
-    g.addColorStop(1, color);
+    g.addColorStop(0, hi);
+    g.addColorStop(1, base);
     ctx.beginPath();
     ctx.arc(s.x, s.y, STRIKER_R, 0, Math.PI * 2);
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.strokeStyle = skin === "gold" ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.18)";
     ctx.lineWidth = 2.5;
     ctx.stroke();
   }
@@ -1738,6 +1788,23 @@
     setScreen("shop");
   });
   btnBackFromShop?.addEventListener("click", () => setScreen("menu"));
+
+  btnBuyGold?.addEventListener("click", () => {
+    ensureSkinInventory();
+    if (profile.ownedSkins.includes("gold")) return;
+    if ((profile.stars || 0) < 20) return;
+    profile.stars -= 20;
+    profile.ownedSkins.push("gold");
+    saveProfile();
+    updateMenuUi();
+  });
+
+  btnLocker?.addEventListener("click", () => {
+    updateMenuUi();
+    renderLocker();
+    setScreen("locker");
+  });
+  btnBackFromLocker?.addEventListener("click", () => setScreen("menu"));
 
   function roomLink(code) {
     return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
