@@ -52,6 +52,7 @@
   const btnKings = document.getElementById("btnKings");
   const btnHowto = document.getElementById("btnHowto");
   const btnProfile = document.getElementById("btnProfile");
+  const btnShop = document.getElementById("btnShop");
   const btnBackFromProfile = document.getElementById("btnBackFromProfile");
   const btnTheme = document.getElementById("btnTheme");
   const howto = document.getElementById("howto");
@@ -85,6 +86,10 @@
   const kingsCount = document.getElementById("kingsCount");
   const kingsList = document.getElementById("kingsList");
   const btnBackFromKings = document.getElementById("btnBackFromKings");
+
+  // shop ui
+  const shopStars = document.getElementById("shopStars");
+  const btnBackFromShop = document.getElementById("btnBackFromShop");
 
   const W = LOGICAL_W;
   const H = LOGICAL_H;
@@ -139,12 +144,13 @@
           elo: Math.max(0, Math.min(4000, parseInt(p.elo, 10) || 0)),
           matches: parseInt(p.matches, 10) || 0,
           wins: parseInt(p.wins, 10) || 0,
+          stars: Math.max(0, parseInt(p.stars, 10) || 0), // "золотые шайбы"
         };
       }
     } catch (e) {
       /* ignore */
     }
-    return { nickname: "Игрок", elo: 0, matches: 0, wins: 0 };
+    return { nickname: "Игрок", elo: 0, matches: 0, wins: 0, stars: 0 };
   }
 
   function saveProfile() {
@@ -256,6 +262,7 @@
     if (profElo) profElo.textContent = String(profile.elo);
     if (profMatches) profMatches.textContent = String(profile.matches);
     if (profWins) profWins.textContent = String(profile.wins);
+    if (shopStars) shopStars.textContent = String(profile.stars || 0) + " ⭐";
     if (achList) renderAchievements();
   }
 
@@ -458,7 +465,7 @@
     buf: [], // { tick:number, s:state }
     latestTick: 0,
     renderTick: 0,
-    lagTicks: 6, // ~100ms at 60Hz
+    lagTicks: 6, // ~100ms at 60Hz (server sim), render uses display Hz
   };
 
   const netStats = {
@@ -886,9 +893,14 @@
   };
 
   function showOnlineEnd(localWin) {
+    const starsEarned = localWin ? (scoreAi === 0 ? 2 : 1) : 1;
+    profile.stars = (profile.stars || 0) + starsEarned;
+    saveProfile();
+    updateMenuUi();
     overlay.innerHTML =
       (localWin ? "Победа!" : "Поражение") +
-      `<div style="font-size:1rem;font-weight:800;color:#2d7cc9">Онлайн матч</div>` +
+      `<div class="anim-in" style="font-size:1rem;font-weight:800;color:#2d7cc9">Онлайн матч</div>` +
+      `<div class="anim-pop" style="font-size:1rem;font-weight:900;color:var(--accent)">+${starsEarned} ⭐</div>` +
       `<button class="btn btn-accent" id="btnBack" style="max-width:240px">В меню</button>`;
     overlay.classList.add("visible");
     document.getElementById("btnBack").onclick = () => {
@@ -1050,11 +1062,16 @@
     profile.elo = Math.max(0, profile.elo + delta);
     profile.matches = (profile.matches || 0) + 1;
     if (playerWon) profile.wins = (profile.wins || 0) + 1;
+    // Currency: "gold pucks" (stars)
+    // Win with opponent scoring 0 -> 2 stars, win otherwise -> 1, loss -> 1
+    const starsEarned = playerWon ? (scoreAi === 0 ? 2 : 1) : 1;
+    profile.stars = (profile.stars || 0) + starsEarned;
     saveProfile();
     updateMenuUi();
     overlay.innerHTML =
       (playerWon ? "Победа!" : "Поражение") +
       `<div style=\"font-size:1rem;font-weight:800;color:#2d7cc9\">Elo: ${delta > 0 ? "+" : ""}${delta} → ${profile.elo}</div>` +
+      `<div style=\"font-size:1rem;font-weight:900;color:var(--accent)\">+${starsEarned} ⭐</div>` +
       `<button class=\"btn btn-accent\" id=\"btnBack\" style=\"max-width:240px\">В меню</button>`;
     overlay.classList.add("visible");
     document.getElementById("btnBack").onclick = () => {
@@ -1216,7 +1233,8 @@
       const dx = target.x - me.x;
       const dy = target.y - me.y;
       const d = Math.hypot(dx, dy);
-      const maxMove = 1900 * (1 / 60); // ~server STRIKER_MAX_SPEED * dt
+      // move at server-like speed, but scaled by real frame dt (works fine at 144Hz+)
+      const maxMove = 1900 * (1 / 60) * clamp(dt * 60, 0.25, 3.0);
       if (d <= maxMove || d < 1e-6) {
         me.x = target.x;
         me.y = target.y;
@@ -1715,6 +1733,12 @@
   });
   btnBackFromKings?.addEventListener("click", () => setScreen("menu"));
 
+  btnShop?.addEventListener("click", () => {
+    updateMenuUi();
+    setScreen("shop");
+  });
+  btnBackFromShop?.addEventListener("click", () => setScreen("menu"));
+
   function roomLink(code) {
     return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
   }
@@ -1817,23 +1841,22 @@
     searchFound.textContent = "";
 
     const steps = [
-      ["Подключение к матчмейкингу…", 420],
-      ["Поиск соперника…", 520],
-      ["Проверка пинга…", 320],
+      ["Подключение…", 180],
+      ["Поиск соперника…", 220],
     ];
     for (const [txt, ms] of steps) {
       searchStatus.textContent = txt;
       await sleep(ms);
     }
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const nm = BOT_NAMES[(Math.random() * BOT_NAMES.length) | 0];
       const r = pickOpponentElo(profile.elo);
       const li = document.createElement("li");
       li.textContent = nm + " · " + r + " Elo";
       searchLog.appendChild(li);
-      searchStatus.textContent = i < 2 ? "Сужаем кандидатов…" : "Подтверждаем пару…";
-      await sleep(350 + Math.random() * 360);
+      searchStatus.textContent = i < 1 ? "Сужаем кандидатов…" : "Подтверждаем пару…";
+      await sleep(160 + Math.random() * 200);
     }
 
     opponentName = BOT_NAMES[(Math.random() * BOT_NAMES.length) | 0];
@@ -1841,13 +1864,17 @@
     opponentSpeed = aiSpeedFor(opponentElo, profile.elo);
     searchStatus.textContent = "Соперник найден";
     searchFound.textContent = opponentName + " · " + opponentElo + " Elo";
-    await sleep(650);
+    await sleep(320);
 
     setScreen("game");
     overlay.classList.remove("visible");
     resetMatch();
+    // Short match intro animation
+    overlay.innerHTML = `<div class="anim-in">Вбрасывание…</div><div class="anim-pop" style="font-size:1rem;font-weight:900;color:var(--accent2)">Удачи!</div>`;
+    overlay.classList.add("visible");
     paused = false;
     lastTs = 0;
+    setTimeout(() => overlay.classList.remove("visible"), 820);
   }
 
   function startPlayerSearch() {
