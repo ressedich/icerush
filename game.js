@@ -359,7 +359,6 @@
   function requestGamePointerLock() {
     if (!canUsePointerLock()) return;
     if (!isGameActive()) return;
-    if (paused) return;
     try {
       wantsPointerLock = true;
       if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
@@ -799,6 +798,9 @@
       lastTs = 0;
       overlay.classList.remove("visible");
       setOnlineStatus("Матч идёт");
+      // The browser requires a user gesture to lock; we prime the flag here so
+      // the next click inside the field locks immediately.
+      wantsPointerLock = true;
     }
 
     if (s.puck) {
