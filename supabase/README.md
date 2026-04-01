@@ -1,24 +1,47 @@
-## Supabase setup (Email OTP accounts)
+# Supabase (Ice Rush)
 
-### 1) Create project
-- Create a Supabase project.
-- In **Authentication → Providers → Email** enable Email login with OTP.
+## 1. Проект
 
-### 2) Get keys
-You need:
-- `SUPABASE_URL` (Project URL)
-- `SUPABASE_ANON_KEY` (anon public key)
+Создай проект на [supabase.com](https://supabase.com). В **Settings → API** возьми:
 
-### 3) Create DB schema
-Run SQL in Supabase SQL Editor:
-- `supabase/schema.sql`
-- `supabase/rls.sql`
+- **Project URL** → `window.__ICE_RUSH_SUPABASE_URL` в `index.html`
+- **anon public** key → `window.__ICE_RUSH_SUPABASE_ANON_KEY` в `index.html`
 
-### 4) (Optional) SMTP
-To improve email deliverability, configure SMTP in Supabase Auth settings.
+## 2. Таблица и RLS
 
-### 5) Backend (Render WS) env vars
-For the WS server to verify tokens and write results to DB, set env vars on Render:
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` (server-only; never put in frontend)
+В **SQL Editor** по очереди выполни:
 
+1. `supabase/schema.sql`
+2. `supabase/rls.sql`
+
+## 3. Вход по email (OTP)
+
+**Authentication → Providers → Email** — включи email/OTP по желанию.  
+Чтобы приходил **код**, а не только ссылка: в **Authentication → Providers → Email** отключи обязательное подтверждение по ссылке (**Confirm email**), если мешает; шаблон **Magic Link** должен содержать `{{ .Token }}`.
+
+**(Опционально)** Свой SMTP: **Authentication → Emails → SMTP** (Resend и т.д.).
+
+## 4. Вход через Google
+
+1. **Authentication → Providers → Google** — включи, вставь **Client ID** и **Secret** из [Google Cloud Console](https://console.cloud.google.com/) (OAuth client type **Web**).
+2. В Google Console в **Authorized redirect URIs** добавь ровно то, что показывает Supabase (вида  
+   `https://XXXX.supabase.co/auth/v1/callback`).
+3. В Supabase: **Authentication → URL Configuration** → в **Redirect URLs** добавь URL(ы), где открывается игра, например:
+   - `https://твой-сайт.netlify.app`
+   - `https://твой-сайт.netlify.app/`
+   - для локалки: `http://localhost:8080` (и порт, если другой)
+
+После этого кнопка **«Войти через Google»** в игре откроет окно Google и вернёт на твою страницу с сессией.
+
+## 5. Сервер WebSocket (Render)
+
+Переменные окружения:
+
+- `SUPABASE_URL` — тот же Project URL
+- `SUPABASE_SERVICE_ROLE_KEY` — **service_role** из Settings → API (**только на сервер**, не в фронт)
+
+Удали, если остались: `DATABASE_URL`, `JWT_SECRET`, `RESEND_*`, `GOOGLE_*` от старого стека, `OAUTH_FRONTEND_URL`.
+
+## 6. Neon
+
+Отдельная база Neon для этой версии **не нужна** — всё в Postgres внутри Supabase.

@@ -25,6 +25,13 @@
             <h1 class="title" id="authTitle">Аккаунт</h1>
             <p class="subtitle" id="authSubtitle">Сначала выбери режим — затем появятся поля.</p>
             <div class="card">
+              <p class="auth-panel-hint" style="margin:0 0 10px">Без кода на почту — один клик.</p>
+              <div class="actions" style="justify-content:center">
+                <button class="btn btn-accent" id="btnAuthGoogle" type="button" style="max-width:100%;width:min(340px,100%)">
+                  Войти через Google
+                </button>
+              </div>
+              <p class="subtitle" style="margin:16px 0 10px;font-size:0.9rem;opacity:0.85">или по email</p>
               <div class="actions auth-mode-row">
                 <button class="btn btn-ghost" id="btnAuthModeRegister" type="button">Регистрация</button>
                 <button class="btn btn-ghost" id="btnAuthModeLogin" type="button">Войти</button>
@@ -307,8 +314,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
     <script>
-      window.__ICE_RUSH_SUPABASE_URL = "https://hfybrgqeifklsfuejcqa.supabase.co";
-      window.__ICE_RUSH_SUPABASE_ANON_KEY = "sb_publishable_Si2cqNOBf-An1_z0N1JBOQ_EUPiEOvc";
+      window.__ICE_RUSH_SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
+      window.__ICE_RUSH_SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
     </script>
     <script src="./game.js" defer></script>
   </body>

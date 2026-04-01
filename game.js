@@ -61,6 +61,7 @@
   const btnAuthSendLogin = document.getElementById("btnAuthSendLogin");
   const btnAuthVerifyReg = document.getElementById("btnAuthVerifyReg");
   const btnAuthVerifyLogin = document.getElementById("btnAuthVerifyLogin");
+  const btnAuthGoogle = document.getElementById("btnAuthGoogle");
   const authStatus = document.getElementById("authStatus");
 
   /** @type {"none"|"register"|"login"} */
@@ -222,10 +223,7 @@
     queueProfileSync();
   }
 
-  // -------- Supabase Auth + DB profile --------
-  // Set these two constants to your Supabase project:
-  // - SUPABASE_URL: https://xxxx.supabase.co
-  // - SUPABASE_ANON_KEY: anon public key
+  // -------- Supabase (email OTP + Google) + profiles --------
   const SUPABASE_URL = (window.__ICE_RUSH_SUPABASE_URL || "").trim();
   const SUPABASE_ANON_KEY = (window.__ICE_RUSH_SUPABASE_ANON_KEY || "").trim();
 
@@ -304,7 +302,6 @@
       return true;
     }
 
-    // First login: НЕ тащим старый localStorage (до регистрации) — только чистый профиль в БД
     const payload = {
       id: uid,
       nickname: "Игрок",
@@ -317,7 +314,6 @@
     };
     const { error: upErr } = await sb.from("profiles").insert(payload);
     if (upErr) {
-      // In case row already exists (race), retry load once
       const { data: rows2 } = await sb.from("profiles").select("*").eq("id", uid).limit(1);
       if (rows2 && rows2[0]) applyDbProfile(rows2[0]);
       return false;
@@ -338,7 +334,7 @@
       btnAuthModeLogin.classList.add("btn-ghost");
     }
     if (authTitle) authTitle.textContent = "Аккаунт";
-    if (authSubtitle) authSubtitle.textContent = "Выбери «Регистрация» или «Войти» — поля появятся ниже.";
+    if (authSubtitle) authSubtitle.textContent = "Войди через Google или выбери вход по email ниже.";
     if (authPanelRegister) {
       authPanelRegister.classList.remove("auth-panel--open");
       authPanelRegister.setAttribute("aria-hidden", "true");
@@ -587,10 +583,12 @@
 
   async function initSupabaseAuth() {
     if (!hasSupabaseConfig()) {
-      setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL / ANON_KEY (см. supabase/README.md).");
+      setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL и ANON_KEY (см. supabase/README.md).");
       return false;
     }
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { flowType: "pkce", detectSessionInUrl: true },
+    });
 
     if (!supabaseVisibilityListenerAdded) {
       supabaseVisibilityListenerAdded = true;
@@ -601,7 +599,7 @@
         if (visRevalidateTimer) clearTimeout(visRevalidateTimer);
         visRevalidateTimer = setTimeout(async () => {
           visRevalidateTimer = null;
-          if (!sb || !sbSession) return;
+          if (!sbSession) return;
           const { data: ud, error: ue } = await sb.auth.getUser();
           if (ue || !ud?.user) {
             authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
@@ -626,12 +624,11 @@
     if (!sbSession) {
       setScreen("auth");
       applyAuthModeNone();
-      setAuthStatus("Сначала выбери «Регистрация» или «Войти».");
+      setAuthStatus("Войди через Google или выбери «Регистрация» / «Войти» по email.");
       setOtpUi();
       return true;
     }
 
-    // Проверка на сервере: если пользователь удалён в Supabase, локальная сессия ещё жива — выкидываем
     const { data: userData, error: userErr } = await sb.auth.getUser();
     if (userErr || !userData?.user) {
       authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
@@ -729,6 +726,22 @@
   btnAuthSendLogin?.addEventListener("click", onAuthSendCode);
   btnAuthVerifyReg?.addEventListener("click", onAuthVerify);
   btnAuthVerifyLogin?.addEventListener("click", onAuthVerify);
+
+  btnAuthGoogle?.addEventListener("click", async () => {
+    if (!sb) {
+      setAuthStatus("Сначала дождись загрузки Supabase или проверь ключи в index.html.");
+      return;
+    }
+    const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search || ""}`;
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo,
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    if (error) setAuthStatus("Google: " + error.message);
+  });
 
   function skinLabel(id) {
     return id === "gold" ? "ЗОЛОТОЙ" : "Обычный";

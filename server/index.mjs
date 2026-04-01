@@ -1,12 +1,15 @@
 import express from "express";
 import http from "http";
+import { webcrypto } from "node:crypto";
 import { WebSocketServer } from "ws";
+
+if (!globalThis.crypto?.subtle) globalThis.crypto = webcrypto;
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 
-// ---- Supabase helpers (JWT verify + Admin REST) ----
+// ---- Supabase helpers (JWT verify + service REST) ----
 function b64urlToBytes(s) {
   const pad = "=".repeat((4 - (s.length % 4)) % 4);
   const b64 = (s + pad).replace(/-/g, "+").replace(/_/g, "/");
