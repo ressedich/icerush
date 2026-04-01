@@ -49,13 +49,35 @@
   };
   const authTitle = document.getElementById("authTitle");
   const authSubtitle = document.getElementById("authSubtitle");
-  const authEmail = document.getElementById("authEmail");
-  const authCode = document.getElementById("authCode");
+  const authPanelRegister = document.getElementById("authPanelRegister");
+  const authPanelLogin = document.getElementById("authPanelLogin");
+  const authEmailReg = document.getElementById("authEmailReg");
+  const authCodeReg = document.getElementById("authCodeReg");
+  const authEmailLogin = document.getElementById("authEmailLogin");
+  const authCodeLogin = document.getElementById("authCodeLogin");
   const btnAuthModeRegister = document.getElementById("btnAuthModeRegister");
   const btnAuthModeLogin = document.getElementById("btnAuthModeLogin");
-  const btnAuthSendCode = document.getElementById("btnAuthSendCode");
-  const btnAuthVerify = document.getElementById("btnAuthVerify");
+  const btnAuthSendReg = document.getElementById("btnAuthSendReg");
+  const btnAuthSendLogin = document.getElementById("btnAuthSendLogin");
+  const btnAuthVerifyReg = document.getElementById("btnAuthVerifyReg");
+  const btnAuthVerifyLogin = document.getElementById("btnAuthVerifyLogin");
   const authStatus = document.getElementById("authStatus");
+
+  /** @type {"register"|"login"} */
+  let authMode = "register";
+
+  function getAuthEmailEl() {
+    return authMode === "register" ? authEmailReg : authEmailLogin;
+  }
+  function getAuthCodeEl() {
+    return authMode === "register" ? authCodeReg : authCodeLogin;
+  }
+  function getAuthVerifyBtns() {
+    return [btnAuthVerifyReg, btnAuthVerifyLogin].filter(Boolean);
+  }
+  function getAuthCodeEls() {
+    return [authCodeReg, authCodeLogin].filter(Boolean);
+  }
   const nickPickInput = document.getElementById("nickPickInput");
   const btnNickPickSave = document.getElementById("btnNickPickSave");
   const nickPickStatus = document.getElementById("nickPickStatus");
@@ -287,9 +309,9 @@
   }
 
   // -------- auth mode (register / login) --------
-  /** @type {"register"|"login"} */
-  let authMode = "register";
   function applyAuthMode(mode) {
+    const emailVal = String(getAuthEmailEl()?.value || "").trim();
+    const codeVal = String(getAuthCodeEl()?.value || "").trim();
     authMode = mode === "login" ? "login" : "register";
     const isReg = authMode === "register";
     if (btnAuthModeRegister) btnAuthModeRegister.classList.toggle("btn-accent", isReg);
@@ -299,9 +321,23 @@
     if (authTitle) authTitle.textContent = isReg ? "Регистрация" : "Вход";
     if (authSubtitle)
       authSubtitle.textContent = isReg
-        ? "Введи email — мы пришлём код. После входа нужно придумать ник."
-        : "Введи email — мы пришлём код для входа на другом устройстве.";
-    if (btnAuthVerify) btnAuthVerify.textContent = isReg ? "Завершить регистрацию" : "Войти";
+        ? "Нажми «Регистрация» — ниже откроются поля."
+        : "Нажми «Войти» — ниже откроются поля.";
+    if (authPanelRegister) {
+      authPanelRegister.classList.toggle("auth-panel--open", isReg);
+      authPanelRegister.setAttribute("aria-hidden", isReg ? "false" : "true");
+    }
+    if (authPanelLogin) {
+      authPanelLogin.classList.toggle("auth-panel--open", !isReg);
+      authPanelLogin.setAttribute("aria-hidden", isReg ? "true" : "false");
+    }
+    if (isReg) {
+      if (authEmailReg) authEmailReg.value = emailVal;
+      if (authCodeReg) authCodeReg.value = codeVal;
+    } else {
+      if (authEmailLogin) authEmailLogin.value = emailVal;
+      if (authCodeLogin) authCodeLogin.value = codeVal;
+    }
   }
   applyAuthMode("register");
   btnAuthModeRegister?.addEventListener("click", () => applyAuthMode("register"));
@@ -471,8 +507,8 @@
   function setOtpUi() {
     const rem = otpRemainingMs();
     const expired = otpSentAt && rem <= 0;
-    if (btnAuthVerify) btnAuthVerify.disabled = !!expired;
-    if (authCode) authCode.disabled = !!expired;
+    for (const b of getAuthVerifyBtns()) b.disabled = !!expired;
+    for (const c of getAuthCodeEls()) c.disabled = !!expired;
     if (expired) setAuthStatus("Код истёк (2 минуты). Нажми «Получить код» ещё раз.");
   }
 
@@ -504,12 +540,12 @@
     return true;
   }
 
-  btnAuthSendCode?.addEventListener("click", async () => {
+  async function onAuthSendCode() {
     if (!sb) {
       setAuthStatus("Supabase не готов.");
       return;
     }
-    const email = String(authEmail?.value || "").trim();
+    const email = String(getAuthEmailEl()?.value || "").trim();
     if (!email || !email.includes("@")) {
       setAuthStatus("Введите корректный email.");
       return;
@@ -529,14 +565,14 @@
         setOtpUi();
         return;
       }
-      setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(rem)}. Введи 6 цифр.`);
+      setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(rem)}. Введи код из письма.`);
     }, 250);
-    if (btnAuthVerify) btnAuthVerify.disabled = false;
-    if (authCode) authCode.disabled = false;
-    setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(OTP_TTL_MS)}. Введи 6 цифр.`);
-  });
+    for (const b of getAuthVerifyBtns()) b.disabled = false;
+    for (const c of getAuthCodeEls()) c.disabled = false;
+    setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(OTP_TTL_MS)}. Введи код из письма.`);
+  }
 
-  btnAuthVerify?.addEventListener("click", async () => {
+  async function onAuthVerify() {
     if (!sb) {
       setAuthStatus("Supabase не готов.");
       return;
@@ -545,14 +581,14 @@
       setOtpUi();
       return;
     }
-    const email = String(authEmail?.value || "").trim();
-    const token = String(authCode?.value || "").trim();
+    const email = String(getAuthEmailEl()?.value || "").trim();
+    const token = String(getAuthCodeEl()?.value || "").trim();
     if (!email || !email.includes("@")) {
       setAuthStatus("Введите email.");
       return;
     }
-    if (!/^\d{6}$/.test(token)) {
-      setAuthStatus("Код должен быть 6 цифр.");
+    if (!/^\d{6,8}$/.test(token)) {
+      setAuthStatus("Код должен быть 6–8 цифр (как в письме).");
       return;
     }
     setAuthStatus("Проверяю код…");
@@ -570,11 +606,15 @@
     if (authMode === "register" && needsNickname()) {
       await openNicknamePick();
     } else {
-      // even on login, force pick if profile has no nick (safety)
       if (needsNickname()) await openNicknamePick();
       else setScreen("menu");
     }
-  });
+  }
+
+  btnAuthSendReg?.addEventListener("click", onAuthSendCode);
+  btnAuthSendLogin?.addEventListener("click", onAuthSendCode);
+  btnAuthVerifyReg?.addEventListener("click", onAuthVerify);
+  btnAuthVerifyLogin?.addEventListener("click", onAuthVerify);
 
   function skinLabel(id) {
     return id === "gold" ? "ЗОЛОТОЙ" : "Обычный";

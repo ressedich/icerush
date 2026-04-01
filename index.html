@@ -23,26 +23,51 @@
         <section id="auth" class="screen">
           <div class="panel">
             <h1 class="title" id="authTitle">Аккаунт</h1>
-            <p class="subtitle" id="authSubtitle">Выбери режим и войди по email-коду.</p>
+            <p class="subtitle" id="authSubtitle">Выбери режим — ниже появятся поля.</p>
             <div class="card">
-              <div class="actions" style="margin-top:0">
-                <button class="btn btn-accent" id="btnAuthModeRegister" style="max-width:240px">Регистрация</button>
-                <button class="btn btn-ghost" id="btnAuthModeLogin" style="max-width:240px">Войти</button>
-              </div>
-              <div class="field">
-                <div class="label">Email</div>
-                <input class="input" id="authEmail" placeholder="name@example.com" inputmode="email" autocomplete="email" />
-              </div>
-              <div class="actions" style="margin-top:12px">
-                <button class="btn btn-accent" id="btnAuthSendCode" style="max-width:240px">Получить код</button>
+              <div class="actions auth-mode-row">
+                <button class="btn btn-accent" id="btnAuthModeRegister" type="button">Регистрация</button>
+                <button class="btn btn-ghost" id="btnAuthModeLogin" type="button">Войти</button>
               </div>
 
-              <div class="field" style="margin-top:14px">
-                <div class="label">Код</div>
-                <input class="input" id="authCode" placeholder="6 цифр" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+              <div id="authPanelRegister" class="auth-panel auth-panel--open" aria-hidden="false">
+                <div class="auth-panel-inner">
+                  <p class="auth-panel-hint">Новый аккаунт: почта → код → придумай ник.</p>
+                  <div class="field">
+                    <div class="label">Email</div>
+                    <input class="input" id="authEmailReg" placeholder="name@example.com" inputmode="email" autocomplete="email" />
+                  </div>
+                  <div class="actions">
+                    <button class="btn btn-accent" id="btnAuthSendReg" type="button">Получить код</button>
+                  </div>
+                  <div class="field" style="margin-top:14px">
+                    <div class="label">Код</div>
+                    <input class="input" id="authCodeReg" placeholder="Код из письма" inputmode="numeric" autocomplete="one-time-code" maxlength="8" />
+                  </div>
+                  <div class="actions">
+                    <button class="btn btn-ghost" id="btnAuthVerifyReg" type="button">Завершить регистрацию</button>
+                  </div>
+                </div>
               </div>
-              <div class="actions" style="margin-top:12px">
-                <button class="btn btn-ghost" id="btnAuthVerify" style="max-width:240px">Войти</button>
+
+              <div id="authPanelLogin" class="auth-panel" aria-hidden="true">
+                <div class="auth-panel-inner">
+                  <p class="auth-panel-hint">Уже есть аккаунт: почта → код с того же ящика.</p>
+                  <div class="field">
+                    <div class="label">Email</div>
+                    <input class="input" id="authEmailLogin" placeholder="name@example.com" inputmode="email" autocomplete="email" />
+                  </div>
+                  <div class="actions">
+                    <button class="btn btn-accent" id="btnAuthSendLogin" type="button">Получить код</button>
+                  </div>
+                  <div class="field" style="margin-top:14px">
+                    <div class="label">Код</div>
+                    <input class="input" id="authCodeLogin" placeholder="Код из письма" inputmode="numeric" autocomplete="one-time-code" maxlength="8" />
+                  </div>
+                  <div class="actions">
+                    <button class="btn btn-ghost" id="btnAuthVerifyLogin" type="button">Войти</button>
+                  </div>
+                </div>
               </div>
 
               <div class="howto" id="authStatus" style="margin-top:10px">—</div>
