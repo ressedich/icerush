@@ -92,6 +92,25 @@
           </div>
         </section>
 
+        <section id="admin" class="screen">
+          <div class="panel">
+            <h2 class="title small">Админ панель</h2>
+            <p class="subtitle">Поиск по нику или по UUID (из Supabase → Users)</p>
+            <div class="card">
+              <div class="inline">
+                <input class="input" id="adminSearchQ" placeholder="Ник или UUID" maxlength="80" />
+                <button class="btn btn-accent" id="btnAdminSearch" type="button" style="max-width:140px">Найти</button>
+              </div>
+              <ul class="log" id="adminSearchList" style="margin-top:10px"></ul>
+              <div id="adminDetail" class="admin-detail hidden" style="margin-top:14px"></div>
+              <div class="howto" id="adminMsg" style="margin-top:10px"></div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-ghost" id="btnBackFromAdmin" type="button">Назад</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="menu" class="screen">
           <div class="panel">
             <h1 class="title">Ледовый хоккей</h1>
@@ -120,6 +139,7 @@
                 <button class="btn btn-ghost" id="btnShop">Магазин</button>
                 <button class="btn btn-ghost" id="btnLocker">Шкафчик</button>
                 <button class="btn btn-ghost" id="btnKings">Короли</button>
+                <button class="btn btn-ghost hidden" id="btnAdmin" type="button">Админ</button>
                 <button class="btn btn-ghost" id="btnProfile">Профиль</button>
                 <button class="btn btn-ghost" id="btnHowto">Как играть</button>
               </div>
