@@ -14,12 +14,9 @@
 1. `supabase/schema.sql`
 2. `supabase/rls.sql`
 
-## 3. Вход по email (OTP)
+## 3. Вход по email
 
-**Authentication → Providers → Email** — включи email/OTP по желанию.  
-Чтобы приходил **код**, а не только ссылка: в **Authentication → Providers → Email** отключи обязательное подтверждение по ссылке (**Confirm email**), если мешает; шаблон **Magic Link** должен содержать `{{ .Token }}`.
-
-**(Опционально)** Свой SMTP: **Authentication → Emails → SMTP** (Resend и т.д.).
+В текущей версии игры вход **только через Google**. Провайдер **Email** в Supabase можно оставить выключенным.
 
 ## 4. Вход через Google
 

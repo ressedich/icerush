@@ -49,54 +49,8 @@
   };
   const authTitle = document.getElementById("authTitle");
   const authSubtitle = document.getElementById("authSubtitle");
-  const authPanelRegister = document.getElementById("authPanelRegister");
-  const authPanelLogin = document.getElementById("authPanelLogin");
-  const authEmailReg = document.getElementById("authEmailReg");
-  const authCodeReg = document.getElementById("authCodeReg");
-  const authEmailLogin = document.getElementById("authEmailLogin");
-  const authCodeLogin = document.getElementById("authCodeLogin");
-  const btnAuthModeRegister = document.getElementById("btnAuthModeRegister");
-  const btnAuthModeLogin = document.getElementById("btnAuthModeLogin");
-  const btnAuthSendReg = document.getElementById("btnAuthSendReg");
-  const btnAuthSendLogin = document.getElementById("btnAuthSendLogin");
-  const btnAuthVerifyReg = document.getElementById("btnAuthVerifyReg");
-  const btnAuthVerifyLogin = document.getElementById("btnAuthVerifyLogin");
   const btnAuthGoogle = document.getElementById("btnAuthGoogle");
   const authStatus = document.getElementById("authStatus");
-
-  /** @type {"none"|"register"|"login"} */
-  let authMode = "none";
-
-  function captureAuthFields() {
-    if (authMode === "register") {
-      return {
-        email: String(authEmailReg?.value || "").trim(),
-        code: String(authCodeReg?.value || "").trim(),
-      };
-    }
-    if (authMode === "login") {
-      return {
-        email: String(authEmailLogin?.value || "").trim(),
-        code: String(authCodeLogin?.value || "").trim(),
-      };
-    }
-    return { email: "", code: "" };
-  }
-
-  function getAuthEmailEl() {
-    if (authMode === "none") return null;
-    return authMode === "register" ? authEmailReg : authEmailLogin;
-  }
-  function getAuthCodeEl() {
-    if (authMode === "none") return null;
-    return authMode === "register" ? authCodeReg : authCodeLogin;
-  }
-  function getAuthVerifyBtns() {
-    return [btnAuthVerifyReg, btnAuthVerifyLogin].filter(Boolean);
-  }
-  function getAuthCodeEls() {
-    return [authCodeReg, authCodeLogin].filter(Boolean);
-  }
   const nickPickInput = document.getElementById("nickPickInput");
   const btnNickPickSave = document.getElementById("btnNickPickSave");
   const nickPickStatus = document.getElementById("nickPickStatus");
@@ -322,65 +276,11 @@
     return true;
   }
 
-  // -------- auth mode (none / register / login) --------
-  function applyAuthModeNone() {
-    authMode = "none";
-    if (btnAuthModeRegister) {
-      btnAuthModeRegister.classList.remove("btn-accent");
-      btnAuthModeRegister.classList.add("btn-ghost");
-    }
-    if (btnAuthModeLogin) {
-      btnAuthModeLogin.classList.remove("btn-accent");
-      btnAuthModeLogin.classList.add("btn-ghost");
-    }
+  function resetAuthScreen() {
     if (authTitle) authTitle.textContent = "Аккаунт";
-    if (authSubtitle) authSubtitle.textContent = "Войди через Google или выбери вход по email ниже.";
-    if (authPanelRegister) {
-      authPanelRegister.classList.remove("auth-panel--open");
-      authPanelRegister.setAttribute("aria-hidden", "true");
-    }
-    if (authPanelLogin) {
-      authPanelLogin.classList.remove("auth-panel--open");
-      authPanelLogin.setAttribute("aria-hidden", "true");
-    }
+    if (authSubtitle) authSubtitle.textContent = "Вход только через Google.";
   }
-
-  function applyAuthMode(mode) {
-    const { email: emailVal, code: codeVal } = captureAuthFields();
-    authMode = mode === "login" ? "login" : "register";
-    const isReg = authMode === "register";
-    if (btnAuthModeRegister) {
-      btnAuthModeRegister.classList.toggle("btn-accent", isReg);
-      btnAuthModeRegister.classList.toggle("btn-ghost", !isReg);
-    }
-    if (btnAuthModeLogin) {
-      btnAuthModeLogin.classList.toggle("btn-accent", !isReg);
-      btnAuthModeLogin.classList.toggle("btn-ghost", isReg);
-    }
-    if (authTitle) authTitle.textContent = isReg ? "Регистрация" : "Вход";
-    if (authSubtitle)
-      authSubtitle.textContent = isReg
-        ? "Заполни email и получи код — потом придумай ник."
-        : "Войди тем же email, что при регистрации.";
-    if (authPanelRegister) {
-      authPanelRegister.classList.toggle("auth-panel--open", isReg);
-      authPanelRegister.setAttribute("aria-hidden", isReg ? "false" : "true");
-    }
-    if (authPanelLogin) {
-      authPanelLogin.classList.toggle("auth-panel--open", !isReg);
-      authPanelLogin.setAttribute("aria-hidden", isReg ? "true" : "false");
-    }
-    if (isReg) {
-      if (authEmailReg) authEmailReg.value = emailVal;
-      if (authCodeReg) authCodeReg.value = codeVal;
-    } else {
-      if (authEmailLogin) authEmailLogin.value = emailVal;
-      if (authCodeLogin) authCodeLogin.value = codeVal;
-    }
-  }
-  applyAuthModeNone();
-  btnAuthModeRegister?.addEventListener("click", () => applyAuthMode("register"));
-  btnAuthModeLogin?.addEventListener("click", () => applyAuthMode("login"));
+  resetAuthScreen();
 
   function needsNickname() {
     const nm = String(profile.nickname || "").trim();
@@ -520,37 +420,6 @@
     if (achList) renderAchievements();
   }
 
-  // OTP UX: client-side 2 minute validity window
-  const OTP_TTL_MS = 2 * 60 * 1000;
-  let otpSentAt = 0;
-  let otpTimer = null;
-  function clearOtpTimer() {
-    try {
-      clearInterval(otpTimer);
-    } catch {
-      /* ignore */
-    }
-    otpTimer = null;
-  }
-  function otpRemainingMs() {
-    if (!otpSentAt) return 0;
-    const left = OTP_TTL_MS - (Date.now() - otpSentAt);
-    return Math.max(0, left);
-  }
-  function fmtMmSs(ms) {
-    const s = Math.max(0, Math.ceil(ms / 1000));
-    const m = (s / 60) | 0;
-    const ss = String(s % 60).padStart(2, "0");
-    return `${m}:${ss}`;
-  }
-  function setOtpUi() {
-    const rem = otpRemainingMs();
-    const expired = otpSentAt && rem <= 0;
-    for (const b of getAuthVerifyBtns()) b.disabled = !!expired;
-    for (const c of getAuthCodeEls()) c.disabled = !!expired;
-    if (expired) setAuthStatus("Код истёк (2 минуты). Нажми «Получить код» ещё раз.");
-  }
-
   let authSignOutStatusOverride = null;
   let supabaseVisibilityListenerAdded = false;
 
@@ -574,10 +443,8 @@
     resetProfileAfterRemoteSignOut();
     teardownOnline();
     setScreen("auth");
-    applyAuthModeNone();
+    resetAuthScreen();
     setAuthStatus(message);
-    clearOtpTimer();
-    otpSentAt = 0;
     updateMenuUi();
   }
 
@@ -623,9 +490,8 @@
 
     if (!sbSession) {
       setScreen("auth");
-      applyAuthModeNone();
-      setAuthStatus("Войди через Google или выбери «Регистрация» / «Войти» по email.");
-      setOtpUi();
+      resetAuthScreen();
+      setAuthStatus("Нажми «Войти через Google».");
       return true;
     }
 
@@ -642,90 +508,6 @@
     else setScreen("menu");
     return true;
   }
-
-  async function onAuthSendCode() {
-    if (!sb) {
-      setAuthStatus("Supabase не готов.");
-      return;
-    }
-    if (authMode === "none" || !getAuthEmailEl()) {
-      setAuthStatus("Сначала нажми «Регистрация» или «Войти».");
-      return;
-    }
-    const email = String(getAuthEmailEl()?.value || "").trim();
-    if (!email || !email.includes("@")) {
-      setAuthStatus("Введите корректный email.");
-      return;
-    }
-    setAuthStatus("Отправляю код…");
-    const { error } = await sb.auth.signInWithOtp({ email });
-    if (error) {
-      setAuthStatus("Ошибка: " + error.message);
-      return;
-    }
-    otpSentAt = Date.now();
-    clearOtpTimer();
-    otpTimer = setInterval(() => {
-      const rem = otpRemainingMs();
-      if (rem <= 0) {
-        clearOtpTimer();
-        setOtpUi();
-        return;
-      }
-      setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(rem)}. Введи код из письма.`);
-    }, 250);
-    for (const b of getAuthVerifyBtns()) b.disabled = false;
-    for (const c of getAuthCodeEls()) c.disabled = false;
-    setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(OTP_TTL_MS)}. Введи код из письма.`);
-  }
-
-  async function onAuthVerify() {
-    if (!sb) {
-      setAuthStatus("Supabase не готов.");
-      return;
-    }
-    if (authMode === "none" || !getAuthEmailEl()) {
-      setAuthStatus("Сначала нажми «Регистрация» или «Войти».");
-      return;
-    }
-    if (otpSentAt && otpRemainingMs() <= 0) {
-      setOtpUi();
-      return;
-    }
-    const email = String(getAuthEmailEl()?.value || "").trim();
-    const token = String(getAuthCodeEl()?.value || "").trim();
-    if (!email || !email.includes("@")) {
-      setAuthStatus("Введите email.");
-      return;
-    }
-    if (!/^\d{6,8}$/.test(token)) {
-      setAuthStatus("Код должен быть 6–8 цифр (как в письме).");
-      return;
-    }
-    setAuthStatus("Проверяю код…");
-    const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
-    if (error) {
-      setAuthStatus("Ошибка: " + error.message);
-      return;
-    }
-    clearOtpTimer();
-    otpSentAt = 0;
-    const { data } = await sb.auth.getSession();
-    sbSession = data?.session || null;
-    await loadOrCreateDbProfile();
-    updateMenuUi();
-    if (authMode === "register" && needsNickname()) {
-      await openNicknamePick();
-    } else {
-      if (needsNickname()) await openNicknamePick();
-      else setScreen("menu");
-    }
-  }
-
-  btnAuthSendReg?.addEventListener("click", onAuthSendCode);
-  btnAuthSendLogin?.addEventListener("click", onAuthSendCode);
-  btnAuthVerifyReg?.addEventListener("click", onAuthVerify);
-  btnAuthVerifyLogin?.addEventListener("click", onAuthVerify);
 
   btnAuthGoogle?.addEventListener("click", async () => {
     if (!sb) {
