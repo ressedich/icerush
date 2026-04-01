@@ -358,7 +358,6 @@
 
   function requestGamePointerLock() {
     if (!canUsePointerLock()) return;
-    if (!isGameActive()) return;
     try {
       wantsPointerLock = true;
       if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
@@ -1739,6 +1738,8 @@
 
   btnOpenMatch?.addEventListener("click", async () => {
     try {
+      // Lock cursor immediately on match start click (browser requires gesture)
+      requestGamePointerLock();
       const code = preparedRoomCode || randRoom(6);
       preparedRoomCode = code;
       setUrlToRoom(code);
@@ -1883,8 +1884,16 @@
     );
   }
 
-  btnSearchBots?.addEventListener("click", () => startBotSearch());
-  btnSearchPlayers?.addEventListener("click", () => startPlayerSearch());
+  btnSearchBots?.addEventListener("click", () => {
+    // Lock cursor immediately on "start match" click
+    requestGamePointerLock();
+    startBotSearch();
+  });
+  btnSearchPlayers?.addEventListener("click", () => {
+    // Lock cursor immediately on "start match" click
+    requestGamePointerLock();
+    startPlayerSearch();
+  });
 
   // init
   let profile = loadProfile();
