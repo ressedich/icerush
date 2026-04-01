@@ -23,14 +23,14 @@
         <section id="auth" class="screen">
           <div class="panel">
             <h1 class="title" id="authTitle">Аккаунт</h1>
-            <p class="subtitle" id="authSubtitle">Выбери режим — ниже появятся поля.</p>
+            <p class="subtitle" id="authSubtitle">Сначала выбери режим — затем появятся поля.</p>
             <div class="card">
               <div class="actions auth-mode-row">
-                <button class="btn btn-accent" id="btnAuthModeRegister" type="button">Регистрация</button>
+                <button class="btn btn-ghost" id="btnAuthModeRegister" type="button">Регистрация</button>
                 <button class="btn btn-ghost" id="btnAuthModeLogin" type="button">Войти</button>
               </div>
 
-              <div id="authPanelRegister" class="auth-panel auth-panel--open" aria-hidden="false">
+              <div id="authPanelRegister" class="auth-panel" aria-hidden="true">
                 <div class="auth-panel-inner">
                   <p class="auth-panel-hint">Новый аккаунт: почта → код → придумай ник.</p>
                   <div class="field">

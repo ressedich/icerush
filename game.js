@@ -63,13 +63,31 @@
   const btnAuthVerifyLogin = document.getElementById("btnAuthVerifyLogin");
   const authStatus = document.getElementById("authStatus");
 
-  /** @type {"register"|"login"} */
-  let authMode = "register";
+  /** @type {"none"|"register"|"login"} */
+  let authMode = "none";
+
+  function captureAuthFields() {
+    if (authMode === "register") {
+      return {
+        email: String(authEmailReg?.value || "").trim(),
+        code: String(authCodeReg?.value || "").trim(),
+      };
+    }
+    if (authMode === "login") {
+      return {
+        email: String(authEmailLogin?.value || "").trim(),
+        code: String(authCodeLogin?.value || "").trim(),
+      };
+    }
+    return { email: "", code: "" };
+  }
 
   function getAuthEmailEl() {
+    if (authMode === "none") return null;
     return authMode === "register" ? authEmailReg : authEmailLogin;
   }
   function getAuthCodeEl() {
+    if (authMode === "none") return null;
     return authMode === "register" ? authCodeReg : authCodeLogin;
   }
   function getAuthVerifyBtns() {
@@ -308,21 +326,46 @@
     return true;
   }
 
-  // -------- auth mode (register / login) --------
+  // -------- auth mode (none / register / login) --------
+  function applyAuthModeNone() {
+    authMode = "none";
+    if (btnAuthModeRegister) {
+      btnAuthModeRegister.classList.remove("btn-accent");
+      btnAuthModeRegister.classList.add("btn-ghost");
+    }
+    if (btnAuthModeLogin) {
+      btnAuthModeLogin.classList.remove("btn-accent");
+      btnAuthModeLogin.classList.add("btn-ghost");
+    }
+    if (authTitle) authTitle.textContent = "Аккаунт";
+    if (authSubtitle) authSubtitle.textContent = "Выбери «Регистрация» или «Войти» — поля появятся ниже.";
+    if (authPanelRegister) {
+      authPanelRegister.classList.remove("auth-panel--open");
+      authPanelRegister.setAttribute("aria-hidden", "true");
+    }
+    if (authPanelLogin) {
+      authPanelLogin.classList.remove("auth-panel--open");
+      authPanelLogin.setAttribute("aria-hidden", "true");
+    }
+  }
+
   function applyAuthMode(mode) {
-    const emailVal = String(getAuthEmailEl()?.value || "").trim();
-    const codeVal = String(getAuthCodeEl()?.value || "").trim();
+    const { email: emailVal, code: codeVal } = captureAuthFields();
     authMode = mode === "login" ? "login" : "register";
     const isReg = authMode === "register";
-    if (btnAuthModeRegister) btnAuthModeRegister.classList.toggle("btn-accent", isReg);
-    if (btnAuthModeRegister) btnAuthModeRegister.classList.toggle("btn-ghost", !isReg);
-    if (btnAuthModeLogin) btnAuthModeLogin.classList.toggle("btn-accent", !isReg);
-    if (btnAuthModeLogin) btnAuthModeLogin.classList.toggle("btn-ghost", isReg);
+    if (btnAuthModeRegister) {
+      btnAuthModeRegister.classList.toggle("btn-accent", isReg);
+      btnAuthModeRegister.classList.toggle("btn-ghost", !isReg);
+    }
+    if (btnAuthModeLogin) {
+      btnAuthModeLogin.classList.toggle("btn-accent", !isReg);
+      btnAuthModeLogin.classList.toggle("btn-ghost", isReg);
+    }
     if (authTitle) authTitle.textContent = isReg ? "Регистрация" : "Вход";
     if (authSubtitle)
       authSubtitle.textContent = isReg
-        ? "Нажми «Регистрация» — ниже откроются поля."
-        : "Нажми «Войти» — ниже откроются поля.";
+        ? "Заполни email и получи код — потом придумай ник."
+        : "Войди тем же email, что при регистрации.";
     if (authPanelRegister) {
       authPanelRegister.classList.toggle("auth-panel--open", isReg);
       authPanelRegister.setAttribute("aria-hidden", isReg ? "false" : "true");
@@ -339,7 +382,7 @@
       if (authCodeLogin) authCodeLogin.value = codeVal;
     }
   }
-  applyAuthMode("register");
+  applyAuthModeNone();
   btnAuthModeRegister?.addEventListener("click", () => applyAuthMode("register"));
   btnAuthModeLogin?.addEventListener("click", () => applyAuthMode("login"));
 
@@ -528,7 +571,8 @@
 
     if (!sbSession) {
       setScreen("auth");
-      setAuthStatus("Введи email и получи код.");
+      applyAuthModeNone();
+      setAuthStatus("Сначала выбери «Регистрация» или «Войти».");
       setOtpUi();
       return true;
     }
@@ -543,6 +587,10 @@
   async function onAuthSendCode() {
     if (!sb) {
       setAuthStatus("Supabase не готов.");
+      return;
+    }
+    if (authMode === "none" || !getAuthEmailEl()) {
+      setAuthStatus("Сначала нажми «Регистрация» или «Войти».");
       return;
     }
     const email = String(getAuthEmailEl()?.value || "").trim();
@@ -575,6 +623,10 @@
   async function onAuthVerify() {
     if (!sb) {
       setAuthStatus("Supabase не готов.");
+      return;
+    }
+    if (authMode === "none" || !getAuthEmailEl()) {
+      setAuthStatus("Сначала нажми «Регистрация» или «Войти».");
       return;
     }
     if (otpSentAt && otpRemainingMs() <= 0) {
