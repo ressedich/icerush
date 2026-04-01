@@ -379,7 +379,7 @@
   function applyTheme(mode) {
     const m = mode === "dark" ? "dark" : "light";
     document.body.classList.toggle("theme-dark", m === "dark");
-    if (btnTheme) btnTheme.textContent = m === "dark" ? "Dark" : "Light";
+    if (btnTheme) btnTheme.textContent = m === "dark" ? "Светлая" : "Тёмная";
     try {
       localStorage.setItem(THEME_KEY, m);
     } catch {
@@ -1234,7 +1234,7 @@
     updateMenuUi();
     overlay.innerHTML =
       (localWin ? "Победа!" : "Поражение") +
-      `<div class="anim-in" style="font-size:1rem;font-weight:800;color:#2d7cc9">Онлайн матч</div>` +
+      `<div class="anim-in" style="font-size:1rem;font-weight:800;color:var(--accent2)">Онлайн матч</div>` +
       `<div class="anim-pop" style="font-size:1rem;font-weight:900;color:var(--accent)">+${starsEarned} ⭐</div>` +
       `<button class="btn btn-accent" id="btnBack" style="max-width:240px">В меню</button>`;
     overlay.classList.add("visible");
@@ -1405,7 +1405,7 @@
     updateMenuUi();
     overlay.innerHTML =
       (playerWon ? "Победа!" : "Поражение") +
-      `<div style=\"font-size:1rem;font-weight:800;color:#2d7cc9\">Elo: ${delta > 0 ? "+" : ""}${delta} → ${profile.elo}</div>` +
+      `<div style=\"font-size:1rem;font-weight:800;color:var(--accent2)\">Elo: ${delta > 0 ? "+" : ""}${delta} → ${profile.elo}</div>` +
       `<div style=\"font-size:1rem;font-weight:900;color:var(--accent)\">+${starsEarned} ⭐</div>` +
       `<button class=\"btn btn-accent\" id=\"btnBack\" style=\"max-width:240px\">В меню</button>`;
     overlay.classList.add("visible");
