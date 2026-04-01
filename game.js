@@ -328,6 +328,7 @@
   // Input
   let mouse = { x: inner.left + 120, y: H / 2 };
   let pointerInCanvas = false;
+  let wantsPointerLock = false;
 
   function canvasToGame(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
@@ -343,8 +344,42 @@
     mouse.y = c.y;
   }
 
+  function isGameActive() {
+    return screens.game?.classList?.contains("active");
+  }
+
+  function canUsePointerLock() {
+    // Pointer lock is mainly for desktop mouse. Avoid on touch devices.
+    const isCoarse =
+      (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+      (window.matchMedia && window.matchMedia("(hover: none)").matches);
+    return !isCoarse && !!canvas?.requestPointerLock;
+  }
+
+  function requestGamePointerLock() {
+    if (!canUsePointerLock()) return;
+    if (!isGameActive()) return;
+    if (paused) return;
+    try {
+      wantsPointerLock = true;
+      if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+    } catch {
+      /* ignore */
+    }
+  }
+
   canvas.addEventListener("mousemove", (e) => {
     ensureAudio();
+    // If pointer is locked, use relative movement so cursor can't leave the field
+    if (document.pointerLockElement === canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = W / rect.width;
+      const sy = H / rect.height;
+      const p = { x: mouse.x + e.movementX * sx, y: mouse.y + e.movementY * sy };
+      clampMouseToPlayable(p);
+      pointerInCanvas = true;
+      return;
+    }
     const p = canvasToGame(e.clientX, e.clientY);
     clampMouseToPlayable(p);
     pointerInCanvas = true;
@@ -371,6 +406,18 @@
     const p = canvasToGame(t.clientX, t.clientY);
     clampMouseToPlayable(p);
     pointerInCanvas = true;
+  });
+
+  canvas.addEventListener("click", () => {
+    // A user gesture we can use to lock cursor during play
+    requestGamePointerLock();
+  });
+
+  document.addEventListener("pointerlockchange", () => {
+    // If user exited pointer lock (Esc), keep gameplay paused
+    if (document.pointerLockElement !== canvas) {
+      wantsPointerLock = false;
+    }
   });
 
   // Entities
@@ -487,7 +534,7 @@
 
   // Backend WebSocket URL (pin to your Deno Deploy Production URL).
   // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush-kk6xv15xx8qa.deno.net/ws";
+  const WS_BACKEND_URL = "wss://icerush-ressedich.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
@@ -839,22 +886,14 @@
   }
 
   function clampStrikerLeft(x, y) {
-    const gl = inner.left + GOAL_DEPTH;
-    const gy0 = goalY0();
-    const gy1 = goalY1();
     let nx = Math.max(inner.left + STRIKER_R, Math.min(W / 2 - STRIKER_R - 4, x));
     let ny = Math.max(inner.top + STRIKER_R, Math.min(inner.bottom - STRIKER_R, y));
-    if (nx < gl + STRIKER_R && ny > gy0 - STRIKER_R && ny < gy1 + STRIKER_R) nx = gl + STRIKER_R;
     return { x: nx, y: ny };
   }
 
   function clampStrikerRight(x, y) {
-    const gr = inner.right - GOAL_DEPTH;
-    const gy0 = goalY0();
-    const gy1 = goalY1();
     let nx = Math.max(W / 2 + STRIKER_R + 4, Math.min(inner.right - STRIKER_R, x));
     let ny = Math.max(inner.top + STRIKER_R, Math.min(inner.bottom - STRIKER_R, y));
-    if (nx > gr - STRIKER_R && ny > gy0 - STRIKER_R && ny < gy1 + STRIKER_R) nx = gr - STRIKER_R;
     return { x: nx, y: ny };
   }
 
@@ -1440,21 +1479,40 @@
     drawHud();
   }
 
+  function openPauseOverlay() {
+    paused = true;
+    try {
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+    } catch {
+      /* ignore */
+    }
+    overlay.innerHTML = `<div>Пауза</div><button class=\"btn btn-accent\" id=\"btnMenu\" style=\"max-width:240px\">В меню</button><button class=\"btn btn-ghost\" id=\"btnResume\" style=\"max-width:240px\">Продолжить</button>`;
+    overlay.classList.add("visible");
+    document.getElementById("btnMenu").onclick = () => {
+      overlay.classList.remove("visible");
+      setScreen("menu");
+    };
+    document.getElementById("btnResume").onclick = () => {
+      overlay.classList.remove("visible");
+      paused = false;
+      lastTs = 0;
+      // lock again on resume (user gesture)
+      requestGamePointerLock();
+    };
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!isGameActive()) return;
+    // Esc should always open pause and release cursor
+    e.preventDefault();
+    openPauseOverlay();
+  });
+
   canvas.addEventListener("click", (e) => {
     const p = canvasToGame(e.clientX, e.clientY);
     if (p.x >= 16 && p.x <= 46 && p.y >= 10 && p.y <= 40) {
-      paused = true;
-      overlay.innerHTML = `<div>Пауза</div><button class=\"btn btn-accent\" id=\"btnMenu\" style=\"max-width:240px\">В меню</button><button class=\"btn btn-ghost\" id=\"btnResume\" style=\"max-width:240px\">Продолжить</button>`;
-      overlay.classList.add("visible");
-      document.getElementById("btnMenu").onclick = () => {
-        overlay.classList.remove("visible");
-        setScreen("menu");
-      };
-      document.getElementById("btnResume").onclick = () => {
-        overlay.classList.remove("visible");
-        paused = false;
-        lastTs = 0;
-      };
+      openPauseOverlay();
     }
   });
 
