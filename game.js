@@ -74,13 +74,11 @@
   const btnFind = document.getElementById("btnFind");
   const btnOnline = document.getElementById("btnOnline");
   const btnKings = document.getElementById("btnKings");
-  const btnHowto = document.getElementById("btnHowto");
   const btnProfile = document.getElementById("btnProfile");
   const btnShop = document.getElementById("btnShop");
   const btnLocker = document.getElementById("btnLocker");
   const btnBackFromProfile = document.getElementById("btnBackFromProfile");
   const btnTheme = document.getElementById("btnTheme");
-  const howto = document.getElementById("howto");
   const searchArena = document.getElementById("searchArena");
   const searchRange = document.getElementById("searchRange");
   const searchStatus = document.getElementById("searchStatus");
@@ -2028,8 +2026,6 @@
     }
     requestAnimationFrame(step);
   }
-
-  btnHowto.addEventListener("click", () => howto.classList.toggle("hidden"));
 
   btnProfile.addEventListener("click", () => {
     updateMenuUi();
