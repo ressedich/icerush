@@ -7,6 +7,19 @@
 
   const canvas = document.getElementById("gameCanvas");
   const ctx = canvas.getContext("2d");
+  // Safari / старые Chromium: без roundRect отрисовка падает после льда — шайба/игроки не рисуются
+  if (ctx && typeof CanvasRenderingContext2D.prototype.roundRect !== "function") {
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+      const rad = Math.min(+r || 0, w / 2, h / 2);
+      this.moveTo(x + rad, y);
+      this.arcTo(x + w, y, x + w, y + h, rad);
+      this.arcTo(x + w, y + h, x, y + h, rad);
+      this.arcTo(x, y + h, x, y, rad);
+      this.arcTo(x, y, x + w, y, rad);
+      this.closePath();
+      return this;
+    };
+  }
   // HiDPI: меньше пикселей/лесенок + не ломаем responsive CSS
   const LOGICAL_W = canvas.width;
   const LOGICAL_H = canvas.height;
@@ -657,8 +670,10 @@
 
   function canvasToGame(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    const sx = W / rect.width;
-    const sy = H / rect.height;
+    const rw = Math.max(1, rect.width);
+    const rh = Math.max(1, rect.height);
+    const sx = W / rw;
+    const sy = H / rh;
     return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
   }
 
@@ -670,7 +685,7 @@
   }
 
   function isGameActive() {
-    return screens.game?.classList?.contains("active");
+    return !!(screens.game && screens.game.classList.contains("active"));
   }
 
   function canUsePointerLock() {
@@ -696,9 +711,13 @@
     // If pointer is locked, use relative movement so cursor can't leave the field
     if (document.pointerLockElement === canvas) {
       const rect = canvas.getBoundingClientRect();
-      const sx = W / rect.width;
-      const sy = H / rect.height;
-      const p = { x: mouse.x + e.movementX * sx, y: mouse.y + e.movementY * sy };
+      const rw = Math.max(1, rect.width);
+      const rh = Math.max(1, rect.height);
+      const sx = W / rw;
+      const sy = H / rh;
+      const mx = Number.isFinite(e.movementX) ? e.movementX : 0;
+      const my = Number.isFinite(e.movementY) ? e.movementY : 0;
+      const p = { x: mouse.x + mx * sx, y: mouse.y + my * sy };
       clampMouseToPlayable(p);
       pointerInCanvas = true;
       return;
@@ -1394,6 +1413,8 @@
     overlay.classList.add("visible");
     document.getElementById("btnBack").onclick = () => {
       overlay.classList.remove("visible");
+      teardownOnline();
+      clearRoomFromUrl();
       setScreen("menu");
     };
   }
@@ -1871,6 +1892,8 @@
     overlay.classList.add("visible");
     document.getElementById("btnMenu").onclick = () => {
       overlay.classList.remove("visible");
+      teardownOnline();
+      clearRoomFromUrl();
       setScreen("menu");
     };
     document.getElementById("btnResume").onclick = () => {
@@ -1904,7 +1927,7 @@
     dt = Math.min(dt, 0.05);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
 
-    if (!paused && screens.game.classList.contains("active")) {
+    if (!paused && screens.game && screens.game.classList.contains("active")) {
       const safeDt = dt < 1e-4 ? 1 / 60 : dt;
       player.vx = (player.x - player.px) / safeDt;
       player.vy = (player.y - player.py) / safeDt;
@@ -1998,7 +2021,11 @@
       }
     }
 
-    draw();
+    try {
+      draw();
+    } catch (err) {
+      console.error("draw():", err);
+    }
     requestAnimationFrame(step);
   }
 
@@ -2106,6 +2133,8 @@
       await openNicknamePick();
       return;
     }
+    teardownOnline();
+    clearRoomFromUrl();
     if (myCodeView) myCodeView.textContent = clientId;
     setOnlineStatus("Готовим ссылку…");
     setScreen("online");
@@ -2169,6 +2198,8 @@
       await openNicknamePick();
       return;
     }
+    teardownOnline();
+    clearRoomFromUrl();
     setScreen("search");
     searchArena.textContent = arenaFor(profile.elo);
     const lo = Math.max(0, profile.elo - 120);
@@ -2183,6 +2214,8 @@
   });
 
   async function startBotSearch() {
+    teardownOnline();
+    clearRoomFromUrl();
     teardownMatchmaking();
     btnSearchPlayers && (btnSearchPlayers.disabled = true);
     btnSearchBots && (btnSearchBots.disabled = true);
@@ -2232,6 +2265,8 @@
       setScreen("auth");
       return;
     }
+    teardownOnline();
+    clearRoomFromUrl();
     teardownMatchmaking();
     btnSearchPlayers && (btnSearchPlayers.disabled = true);
     btnSearchBots && (btnSearchBots.disabled = true);
