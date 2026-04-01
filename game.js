@@ -177,7 +177,7 @@
     queueProfileSync();
   }
 
-  // -------- Supabase (email OTP + Google) + profiles --------
+  // -------- Supabase (Google) + profiles --------
   const SUPABASE_URL = (window.__ICE_RUSH_SUPABASE_URL || "").trim();
   const SUPABASE_ANON_KEY = (window.__ICE_RUSH_SUPABASE_ANON_KEY || "").trim();
 
@@ -284,7 +284,8 @@
 
   function needsNickname() {
     const nm = String(profile.nickname || "").trim();
-    return !nm || nm.toLowerCase() === "игрок";
+    if (nm.length < 2) return true;
+    return nm.toLowerCase() === "игрок";
   }
 
   async function openNicknamePick() {
@@ -298,8 +299,8 @@
       .trim()
       .replace(/\s+/g, " ")
       .slice(0, 12);
-    if (!nm) {
-      setNickPickStatus("Ник не может быть пустым.");
+    if (nm.length < 2) {
+      setNickPickStatus("Ник — минимум 2 символа.");
       return;
     }
     profile.nickname = nm;
@@ -448,11 +449,51 @@
     updateMenuUi();
   }
 
+  async function routeAfterSession() {
+    if (!sb) return;
+    const { data } = await sb.auth.getSession();
+    sbSession = data?.session || null;
+    if (!sbSession) {
+      setScreen("auth");
+      resetAuthScreen();
+      setAuthStatus("Нажми «Войти через Google».");
+      return;
+    }
+    const { data: userData, error: userErr } = await sb.auth.getUser();
+    if (userErr || !userData?.user) {
+      authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
+      await sb.auth.signOut();
+      return;
+    }
+    await loadOrCreateDbProfile();
+    updateMenuUi();
+
+    const url0 = new URL(window.location.href);
+    const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
+    if (room0) {
+      if (!getAccessToken()) {
+        setAuthStatus("Войди через Google, чтобы открыть матч по ссылке.");
+        setScreen("auth");
+        return;
+      }
+      setScreen("game");
+      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${room0}</div>`;
+      overlay.classList.add("visible");
+      connectWs(room0);
+      return;
+    }
+
+    if (needsNickname()) await openNicknamePick();
+    else setScreen("menu");
+  }
+
   async function initSupabaseAuth() {
+    setScreen("auth");
     if (!hasSupabaseConfig()) {
       setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL и ANON_KEY (см. supabase/README.md).");
       return false;
     }
+    setAuthStatus("Загрузка…");
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { flowType: "pkce", detectSessionInUrl: true },
     });
@@ -476,36 +517,21 @@
       });
     }
 
-    const { data } = await sb.auth.getSession();
-    sbSession = data?.session || null;
-
     sb.auth.onAuthStateChange((event, session) => {
       sbSession = session || null;
       if (event === "SIGNED_OUT") {
         const msg = authSignOutStatusOverride || "Вы вышли из аккаунта.";
         authSignOutStatusOverride = null;
         afterSignedOutUi(msg);
+        return;
+      }
+      if (event === "TOKEN_REFRESHED") return;
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        void routeAfterSession();
       }
     });
 
-    if (!sbSession) {
-      setScreen("auth");
-      resetAuthScreen();
-      setAuthStatus("Нажми «Войти через Google».");
-      return true;
-    }
-
-    const { data: userData, error: userErr } = await sb.auth.getUser();
-    if (userErr || !userData?.user) {
-      authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
-      await sb.auth.signOut();
-      return true;
-    }
-
-    await loadOrCreateDbProfile();
-    updateMenuUi();
-    if (needsNickname()) await openNicknamePick();
-    else setScreen("menu");
+    await routeAfterSession();
     return true;
   }
 
@@ -2076,6 +2102,10 @@
   // joinByLink replaced by connectWs()
 
   btnOnline?.addEventListener("click", async () => {
+    if (needsNickname()) {
+      await openNicknamePick();
+      return;
+    }
     if (myCodeView) myCodeView.textContent = clientId;
     setOnlineStatus("Готовим ссылку…");
     setScreen("online");
@@ -2135,6 +2165,10 @@
   });
 
   btnFind.addEventListener("click", async () => {
+    if (needsNickname()) {
+      await openNicknamePick();
+      return;
+    }
     setScreen("search");
     searchArena.textContent = arenaFor(profile.elo);
     const lo = Math.max(0, profile.elo - 120);
@@ -2194,7 +2228,7 @@
 
   function startPlayerSearch() {
     if (!getAccessToken()) {
-      setAuthStatus("Войди по email, чтобы играть онлайн.");
+      setAuthStatus("Войди через Google, чтобы играть онлайн.");
       setScreen("auth");
       return;
     }
@@ -2270,25 +2304,7 @@
   // init
   let profile = loadProfile();
   updateMenuUi();
-  initSupabaseAuth().then(() => {
-    const url0 = new URL(window.location.href);
-    const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
-    if (room0) {
-      if (!getAccessToken()) {
-        setAuthStatus("Войди по email, чтобы открыть матч по ссылке.");
-        setScreen("auth");
-        return;
-      }
-      // direct link opens waiting match automatically
-      setScreen("game");
-      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${room0}</div>`;
-      overlay.classList.add("visible");
-      connectWs(room0);
-    } else {
-      // initSupabaseAuth() sets auth/menu; this is a safe fallback
-      if (!screens.auth?.classList.contains("active")) setScreen("menu");
-    }
-  });
+  initSupabaseAuth().catch((e) => console.error("initSupabaseAuth:", e));
   requestAnimationFrame(step);
   } catch (e) {
     console.error("Ice Rush init failed:", e);
