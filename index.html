@@ -20,7 +20,33 @@
       </header>
 
       <main class="main-flow">
-        <section id="menu" class="screen active">
+        <section id="auth" class="screen">
+          <div class="panel">
+            <h1 class="title">Вход</h1>
+            <p class="subtitle">Введи email — мы отправим код (OTP). Код привяжет почту к аккаунту.</p>
+            <div class="card">
+              <div class="field">
+                <div class="label">Email</div>
+                <input class="input" id="authEmail" placeholder="name@example.com" inputmode="email" autocomplete="email" />
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-accent" id="btnAuthSendCode" style="max-width:240px">Получить код</button>
+              </div>
+
+              <div class="field" style="margin-top:14px">
+                <div class="label">Код</div>
+                <input class="input" id="authCode" placeholder="6 цифр" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button class="btn btn-ghost" id="btnAuthVerify" style="max-width:240px">Войти</button>
+              </div>
+
+              <div class="howto" id="authStatus" style="margin-top:10px">—</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="menu" class="screen">
           <div class="panel">
             <h1 class="title">Ледовый хоккей</h1>
             <p class="subtitle">Матч против бота под ваш рейтинг</p>
@@ -233,6 +259,11 @@
       </main>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
+    <script>
+      window.__ICE_RUSH_SUPABASE_URL = "https://hfybrgqeifklsfuejcqa.supabase.co";
+      window.__ICE_RUSH_SUPABASE_ANON_KEY = "sb_publishable_Si2cqNOBf-An1_z0N1JBOQ_EUPiEOvc";
+    </script>
     <script src="./game.js" defer></script>
   </body>
 </html>

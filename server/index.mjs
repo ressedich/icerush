@@ -3,6 +3,108 @@ import http from "http";
 import { WebSocketServer } from "ws";
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
+const SUPABASE_URL = String(process.env.SUPABASE_URL || "").trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+
+// ---- Supabase helpers (JWT verify + Admin REST) ----
+function b64urlToBytes(s) {
+  const pad = "=".repeat((4 - (s.length % 4)) % 4);
+  const b64 = (s + pad).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(Buffer.from(b64, "base64"));
+}
+
+function b64urlToJson(s) {
+  try {
+    return JSON.parse(Buffer.from(b64urlToBytes(s)).toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function parseJwt(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3) return null;
+  const header = b64urlToJson(parts[0]);
+  const payload = b64urlToJson(parts[1]);
+  const sig = parts[2];
+  if (!header || !payload || !sig) return null;
+  return { header, payload, signed: `${parts[0]}.${parts[1]}`, sig };
+}
+
+let _jwksCache = { at: 0, keysByKid: new Map() };
+async function getJwksKeys() {
+  if (!SUPABASE_URL) return new Map();
+  const now = Date.now();
+  if (_jwksCache.keysByKid.size && now - _jwksCache.at < 10 * 60 * 1000) return _jwksCache.keysByKid;
+  const jwksUrl = `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/.well-known/jwks.json`;
+  const r = await fetch(jwksUrl, { headers: { accept: "application/json" } });
+  if (!r.ok) throw new Error(`JWKS HTTP ${r.status}`);
+  const j = await r.json();
+  const keys = new Map();
+  for (const k of Array.isArray(j?.keys) ? j.keys : []) {
+    if (k && k.kid) keys.set(String(k.kid), k);
+  }
+  _jwksCache = { at: now, keysByKid: keys };
+  return keys;
+}
+
+async function importRsaPublicKey(jwk) {
+  if (!jwk) return null;
+  return await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+}
+
+async function verifySupabaseJwt(token) {
+  if (!SUPABASE_URL) throw new Error("SUPABASE_URL missing");
+  const parsed = parseJwt(token);
+  if (!parsed) throw new Error("Invalid JWT");
+  const { header, payload, signed, sig } = parsed;
+  if (header.alg !== "RS256") throw new Error("Unsupported alg");
+  const kid = String(header.kid || "");
+  const keys = await getJwksKeys();
+  const jwk = keys.get(kid);
+  if (!jwk) throw new Error("Unknown kid");
+  const key = await importRsaPublicKey(jwk);
+  const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64urlToBytes(sig), Buffer.from(signed, "utf8"));
+  if (!ok) throw new Error("Bad signature");
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && now >= (payload.exp | 0)) throw new Error("Expired");
+  if (payload.iss && typeof payload.iss === "string") {
+    const wantIss = `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1`;
+    if (payload.iss !== wantIss) throw new Error("Bad iss");
+  }
+  const sub = String(payload.sub || "");
+  if (!sub) throw new Error("Missing sub");
+  return { userId: sub, payload };
+}
+
+function supaRestHeaders() {
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    "content-type": "application/json",
+  };
+}
+
+async function supaGetProfile(userId) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  const url = `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=*`;
+  const r = await fetch(url, { headers: supaRestHeaders() });
+  if (!r.ok) throw new Error(`profiles select HTTP ${r.status}`);
+  const arr = await r.json();
+  return arr && arr[0] ? arr[0] : null;
+}
+
+async function supaUpsertProfile(row) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return false;
+  const url = `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/profiles?on_conflict=id`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { ...supaRestHeaders(), prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify(row),
+  });
+  if (!r.ok) throw new Error(`profiles upsert HTTP ${r.status}`);
+  return true;
+}
 
 // ---- Simple in-memory leaderboard (for demo / single instance) ----
 const kings = new Map(); // id -> { nick, elo, updatedAt }
@@ -37,6 +139,7 @@ const PUCK_MAX_SPEED = 900;
 const STRIKER_MAX_SPEED = 1900; // px/s, server-side cap for responsiveness
 const SIM_HZ = 60;
 const SIM_DT = 1 / SIM_HZ;
+const K_ELO = 28;
 
 const inner = {
   left: MARGIN + BORDER,
@@ -47,6 +150,15 @@ const inner = {
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function expectedScore(ra, rb) {
+  return 1 / (1 + Math.pow(10, (rb - ra) / 400));
+}
+function eloDelta(playerRating, oppRating, playerWon) {
+  const s = playerWon ? 1 : 0;
+  const e = expectedScore(playerRating, oppRating);
+  return K_ELO * (s - e);
 }
 function goalY0() {
   return H / 2 - GOAL_HALF_H;
@@ -195,7 +307,7 @@ function getRoom(code) {
     r = {
       code,
       state: makeInitialState(),
-      clients: new Map(), // ws -> { side, id, nick, elo }
+      clients: new Map(), // ws -> { side, id(userId), clientId, nick, elo }
       lastTick: Date.now(),
       tickTimer: null,
       broadcastAcc: 0,
@@ -313,6 +425,53 @@ function simStep(room, dt) {
     broadcast(room, { t: "end", leftWon });
     const lId = l.id;
     const rId = r.id;
+    // Server-authoritative rating + currency update (best-effort).
+    const lElo0 = l.elo | 0;
+    const rElo0 = r.elo | 0;
+    const dl = eloDelta(lElo0, rElo0, leftWon);
+    const dr = -dl;
+    l.elo = Math.max(0, Math.round(lElo0 + dl));
+    r.elo = Math.max(0, Math.round(rElo0 + dr));
+
+    const lStars = leftWon ? (st.scoreR === 0 ? 2 : 1) : 1;
+    const rStars = !leftWon ? (st.scoreL === 0 ? 2 : 1) : 1;
+
+    if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && lId && rId) {
+      (async () => {
+        try {
+          const lp = await supaGetProfile(lId);
+          const rp = await supaGetProfile(rId);
+          const lMatches = (lp?.matches | 0) + 1;
+          const rMatches = (rp?.matches | 0) + 1;
+          const lWins = (lp?.wins | 0) + (leftWon ? 1 : 0);
+          const rWins = (rp?.wins | 0) + (!leftWon ? 1 : 0);
+          const lStarsNew = (lp?.stars | 0) + lStars;
+          const rStarsNew = (rp?.stars | 0) + rStars;
+          await supaUpsertProfile({
+            id: lId,
+            nickname: String(lp?.nickname || l.nick || "Игрок").slice(0, 12),
+            elo: l.elo | 0,
+            matches: lMatches,
+            wins: lWins,
+            stars: lStarsNew,
+            owned_skins: Array.isArray(lp?.owned_skins) ? lp.owned_skins : ["default"],
+            equipped_skin: typeof lp?.equipped_skin === "string" ? lp.equipped_skin : "default",
+          });
+          await supaUpsertProfile({
+            id: rId,
+            nickname: String(rp?.nickname || r.nick || "Игрок").slice(0, 12),
+            elo: r.elo | 0,
+            matches: rMatches,
+            wins: rWins,
+            stars: rStarsNew,
+            owned_skins: Array.isArray(rp?.owned_skins) ? rp.owned_skins : ["default"],
+            equipped_skin: typeof rp?.equipped_skin === "string" ? rp.equipped_skin : "default",
+          });
+        } catch {
+          /* ignore best-effort persistence */
+        }
+      })();
+    }
     if (lId) {
       const prev = kings.get(lId);
       if (!prev || (l.elo | 0) >= (prev.elo | 0)) kings.set(lId, { nick: l.nick, elo: l.elo | 0, updatedAt: Date.now() });
@@ -399,20 +558,157 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, req) => {
-  const url = new URL(req.url, "http://localhost");
-  const roomCode = String(url.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
-  const id = String(url.searchParams.get("clientId") || "").trim().toUpperCase().slice(0, 64);
-  const nick = String(url.searchParams.get("nick") || "Игрок").trim().slice(0, 12) || "Игрок";
-  const elo = Math.max(0, Math.min(5000, parseInt(url.searchParams.get("elo") || "0", 10) || 0));
+  (async () => {
+    const url = new URL(req.url, "http://localhost");
+    const roomCode = String(url.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
+    const clientId = String(url.searchParams.get("clientId") || "").trim().toUpperCase().slice(0, 64);
+    const token = String(url.searchParams.get("token") || "").trim();
 
-  if (!id) {
-    ws.close(1008, "Missing clientId");
-    return;
-  }
+    if (!clientId) {
+      ws.close(1008, "Missing clientId");
+      return;
+    }
+    if (!token) {
+      ws.close(1008, "Missing token");
+      return;
+    }
 
-  // Matchmaking connection (no room param)
-  if (!roomCode) {
-    send(ws, { t: "mm_hello" });
+    let userId = "";
+    try {
+      const v = await verifySupabaseJwt(token);
+      userId = v.userId;
+    } catch {
+      ws.close(1008, "Bad token");
+      return;
+    }
+
+    let nick = "Игрок";
+    let elo = 0;
+    try {
+      const p = await supaGetProfile(userId);
+      if (p) {
+        nick = String(p.nickname || "Игрок").trim().slice(0, 12) || "Игрок";
+        elo = Math.max(0, Math.min(5000, parseInt(p.elo, 10) || 0));
+      } else if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+        await supaUpsertProfile({
+          id: userId,
+          nickname: nick,
+          elo: 0,
+          stars: 0,
+          matches: 0,
+          wins: 0,
+          owned_skins: ["default"],
+          equipped_skin: "default",
+        });
+      }
+    } catch {
+      nick = "Игрок";
+      elo = 0;
+    }
+
+    // Matchmaking connection (no room param)
+    if (!roomCode) {
+      send(ws, { t: "mm_hello" });
+      ws.on("message", (data) => {
+        let msg = null;
+        try {
+          msg = JSON.parse(String(data));
+        } catch {
+          msg = null;
+        }
+        if (!msg || typeof msg.t !== "string") return;
+        if (msg.t === "ping") {
+          send(ws, { t: "pong", n: msg.n ?? 0, c: msg.c ?? 0, s: Date.now() });
+          return;
+        }
+        if (msg.t === "mm_find") {
+          removeMm(ws);
+          const me = { ws, id: userId, nick, elo, seekingAt: Date.now() };
+          // find closest by Elo, within window
+          const WINDOW = 250;
+          let bestIdx = -1;
+          let bestDiff = 1e9;
+          for (let i = 0; i < mmWaiting.length; i++) {
+            const it = mmWaiting[i];
+            if (!it || it.id === userId) continue;
+            const d = Math.abs((it.elo | 0) - (elo | 0));
+            if (d <= WINDOW && d < bestDiff) {
+              bestDiff = d;
+              bestIdx = i;
+            }
+          }
+          if (bestIdx >= 0) {
+            const other = mmWaiting.splice(bestIdx, 1)[0];
+            const code = randRoom(6);
+            const room = getRoom(code);
+            // reserve sides by userId so reconnect is deterministic
+            room.state.left.id = other.id;
+            room.state.left.nick = other.nick;
+            room.state.left.elo = other.elo | 0;
+            room.state.right.id = userId;
+            room.state.right.nick = nick;
+            room.state.right.elo = elo | 0;
+            // notify both clients
+            send(other.ws, { t: "mm_match", room: code, opp: { nick, elo } });
+            send(ws, { t: "mm_match", room: code, opp: { nick: other.nick, elo: other.elo } });
+            try {
+              other.ws.close(1000, "matched");
+            } catch {
+              /* ignore */
+            }
+            try {
+              ws.close(1000, "matched");
+            } catch {
+              /* ignore */
+            }
+          } else {
+            mmWaiting.push(me);
+            send(ws, { t: "mm_wait" });
+          }
+        } else if (msg.t === "mm_cancel") {
+          removeMm(ws);
+          send(ws, { t: "mm_wait" });
+        }
+      });
+      ws.on("close", () => {
+        removeMm(ws);
+      });
+      return;
+    }
+
+    const room = getRoom(roomCode);
+    room.clients.set(ws, { id: userId, clientId, nick, elo, side: "spectator" });
+
+    // assign side
+    const st = room.state;
+    let side = "spectator";
+    if (!st.left.id) {
+      st.left.id = userId;
+      st.left.nick = nick;
+      st.left.elo = elo;
+      side = "left";
+    } else if (!st.right.id && st.left.id !== userId) {
+      st.right.id = userId;
+      st.right.nick = nick;
+      st.right.elo = elo;
+      side = "right";
+    } else if (st.left.id === userId) {
+      side = "left";
+      st.left.nick = nick;
+      st.left.elo = elo;
+    } else if (st.right.id === userId) {
+      side = "right";
+      st.right.nick = nick;
+      st.right.elo = elo;
+    }
+    room.clients.get(ws).side = side;
+
+    send(ws, { t: "side", side, room: roomCode });
+    if (side === "left" || side === "right") {
+      send(ws, { t: "wait" });
+    }
+    maybeStart(room);
+
     ws.on("message", (data) => {
       let msg = null;
       try {
@@ -425,137 +721,44 @@ wss.on("connection", (ws, req) => {
         send(ws, { t: "pong", n: msg.n ?? 0, c: msg.c ?? 0, s: Date.now() });
         return;
       }
-      if (msg.t === "mm_find") {
-        removeMm(ws);
-        const me = { ws, id, nick, elo, seekingAt: Date.now() };
-        // find closest by Elo, within window
-        const WINDOW = 250;
-        let bestIdx = -1;
-        let bestDiff = 1e9;
-        for (let i = 0; i < mmWaiting.length; i++) {
-          const it = mmWaiting[i];
-          if (!it || it.id === id) continue;
-          const d = Math.abs((it.elo | 0) - (elo | 0));
-          if (d <= WINDOW && d < bestDiff) {
-            bestDiff = d;
-            bestIdx = i;
-          }
-        }
-        if (bestIdx >= 0) {
-          const other = mmWaiting.splice(bestIdx, 1)[0];
-          const code = randRoom(6);
-          const room = getRoom(code);
-          // reserve sides by id so reconnect is deterministic
-          room.state.left.id = other.id;
-          room.state.left.nick = other.nick;
-          room.state.left.elo = other.elo | 0;
-          room.state.right.id = id;
-          room.state.right.nick = nick;
-          room.state.right.elo = elo | 0;
-          // notify both clients
-          send(other.ws, { t: "mm_match", room: code, opp: { nick, elo } });
-          send(ws, { t: "mm_match", room: code, opp: { nick: other.nick, elo: other.elo } });
-          try {
-            other.ws.close(1000, "matched");
-          } catch {
-            /* ignore */
-          }
-          try {
-            ws.close(1000, "matched");
-          } catch {
-            /* ignore */
-          }
-        } else {
-          mmWaiting.push(me);
-          send(ws, { t: "mm_wait" });
-        }
-      } else if (msg.t === "mm_cancel") {
-        removeMm(ws);
-        send(ws, { t: "mm_wait" });
+      if (msg.t !== "input") return;
+      const x = +msg.x;
+      const y = +msg.y;
+      const seq = msg.seq == null ? 0 : (msg.seq | 0);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (side === "left") {
+        const c = clampStrikerLeft(x, y);
+        st.left.tx = c.x;
+        st.left.ty = c.y;
+        if (seq > (st.left.lastSeq | 0)) st.left.lastSeq = seq;
+      } else if (side === "right") {
+        const c = clampStrikerRight(x, y);
+        st.right.tx = c.x;
+        st.right.ty = c.y;
+        if (seq > (st.right.lastSeq | 0)) st.right.lastSeq = seq;
       }
     });
+
     ws.on("close", () => {
-      removeMm(ws);
+      room.clients.delete(ws);
+      if (side === "left") {
+        st.left.id = "";
+      } else if (side === "right") {
+        st.right.id = "";
+      }
+      st.running = false;
+      st.ended = false;
+      broadcast(room, { t: "peer_left" });
+      if (room.clients.size === 0) {
+        stopLoop(room);
+        rooms.delete(roomCode);
+      }
     });
-    return;
-  }
-
-  const room = getRoom(roomCode);
-  room.clients.set(ws, { id, nick, elo, side: "spectator" });
-
-  // assign side
-  const st = room.state;
-  let side = "spectator";
-  if (!st.left.id) {
-    st.left.id = id;
-    st.left.nick = nick;
-    st.left.elo = elo;
-    side = "left";
-  } else if (!st.right.id && st.left.id !== id) {
-    st.right.id = id;
-    st.right.nick = nick;
-    st.right.elo = elo;
-    side = "right";
-  } else if (st.left.id === id) {
-    side = "left";
-    st.left.nick = nick;
-    st.left.elo = elo;
-  } else if (st.right.id === id) {
-    side = "right";
-    st.right.nick = nick;
-    st.right.elo = elo;
-  }
-  room.clients.get(ws).side = side;
-
-  send(ws, { t: "side", side, room: roomCode });
-  if (side === "left" || side === "right") {
-    send(ws, { t: "wait" });
-  }
-  maybeStart(room);
-
-  ws.on("message", (data) => {
-    let msg = null;
+  })().catch(() => {
     try {
-      msg = JSON.parse(String(data));
+      ws.close(1011, "Server error");
     } catch {
-      msg = null;
-    }
-    if (!msg || typeof msg.t !== "string") return;
-    if (msg.t === "ping") {
-      send(ws, { t: "pong", n: msg.n ?? 0, c: msg.c ?? 0, s: Date.now() });
-      return;
-    }
-    if (msg.t !== "input") return;
-    const x = +msg.x;
-    const y = +msg.y;
-    const seq = msg.seq == null ? 0 : (msg.seq | 0);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    if (side === "left") {
-      const c = clampStrikerLeft(x, y);
-      st.left.tx = c.x;
-      st.left.ty = c.y;
-      if (seq > (st.left.lastSeq | 0)) st.left.lastSeq = seq;
-    } else if (side === "right") {
-      const c = clampStrikerRight(x, y);
-      st.right.tx = c.x;
-      st.right.ty = c.y;
-      if (seq > (st.right.lastSeq | 0)) st.right.lastSeq = seq;
-    }
-  });
-
-  ws.on("close", () => {
-    room.clients.delete(ws);
-    if (side === "left") {
-      st.left.id = "";
-    } else if (side === "right") {
-      st.right.id = "";
-    }
-    st.running = false;
-    st.ended = false;
-    broadcast(room, { t: "peer_left" });
-    if (room.clients.size === 0) {
-      stopLoop(room);
-      rooms.delete(roomCode);
+      /* ignore */
     }
   });
 });

@@ -36,6 +36,7 @@
   });
 
   const screens = {
+    auth: document.getElementById("auth"),
     menu: document.getElementById("menu"),
     search: document.getElementById("search"),
     profile: document.getElementById("profile"),
@@ -45,6 +46,11 @@
     locker: document.getElementById("locker"),
     game: document.getElementById("game"),
   };
+  const authEmail = document.getElementById("authEmail");
+  const authCode = document.getElementById("authCode");
+  const btnAuthSendCode = document.getElementById("btnAuthSendCode");
+  const btnAuthVerify = document.getElementById("btnAuthVerify");
+  const authStatus = document.getElementById("authStatus");
   const navEloChip = document.getElementById("navEloChip");
   const menuElo = document.getElementById("menuElo");
   const nickView = document.getElementById("nickView");
@@ -165,6 +171,107 @@
 
   function saveProfile() {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    queueProfileSync();
+  }
+
+  // -------- Supabase Auth + DB profile --------
+  // Set these two constants to your Supabase project:
+  // - SUPABASE_URL: https://xxxx.supabase.co
+  // - SUPABASE_ANON_KEY: anon public key
+  const SUPABASE_URL = (window.__ICE_RUSH_SUPABASE_URL || "").trim();
+  const SUPABASE_ANON_KEY = (window.__ICE_RUSH_SUPABASE_ANON_KEY || "").trim();
+
+  /** @type {import("@supabase/supabase-js").SupabaseClient|null} */
+  let sb = null;
+  /** @type {any} */
+  let sbSession = null;
+
+  function hasSupabaseConfig() {
+    return !!(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase && typeof window.supabase.createClient === "function");
+  }
+
+  function setAuthStatus(txt) {
+    if (authStatus) authStatus.textContent = String(txt || "");
+  }
+
+  function getAccessToken() {
+    return (sbSession && sbSession.access_token) || "";
+  }
+
+  let _profileSyncTimer = null;
+  function queueProfileSync() {
+    if (!sb || !sbSession?.user?.id) return;
+    try {
+      clearTimeout(_profileSyncTimer);
+    } catch {
+      /* ignore */
+    }
+    _profileSyncTimer = setTimeout(() => {
+      _profileSyncTimer = null;
+      syncProfileToDb();
+    }, 250);
+  }
+
+  async function syncProfileToDb() {
+    if (!sb || !sbSession?.user?.id) return false;
+    const uid = sbSession.user.id;
+    const payload = {
+      id: uid,
+      nickname: profile.nickname,
+      elo: profile.elo | 0,
+      stars: profile.stars | 0,
+      matches: profile.matches | 0,
+      wins: profile.wins | 0,
+      owned_skins: Array.isArray(profile.ownedSkins) ? profile.ownedSkins : ["default"],
+      equipped_skin: String(profile.equippedSkin || "default"),
+    };
+    const { error } = await sb.from("profiles").upsert(payload, { onConflict: "id" });
+    if (error) return false;
+    return true;
+  }
+
+  function applyDbProfile(row) {
+    if (!row) return;
+    profile.nickname = typeof row.nickname === "string" && row.nickname.trim() ? row.nickname.trim().slice(0, 12) : profile.nickname;
+    profile.elo = Math.max(0, Math.min(4000, parseInt(row.elo, 10) || 0));
+    profile.stars = Math.max(0, parseInt(row.stars, 10) || 0);
+    profile.matches = parseInt(row.matches, 10) || 0;
+    profile.wins = parseInt(row.wins, 10) || 0;
+    profile.ownedSkins = Array.isArray(row.owned_skins) ? row.owned_skins.map(String) : profile.ownedSkins;
+    profile.equippedSkin = typeof row.equipped_skin === "string" ? row.equipped_skin : profile.equippedSkin;
+    ensureSkinInventory();
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  }
+
+  async function loadOrCreateDbProfile() {
+    if (!sb || !sbSession?.user?.id) return false;
+    const uid = sbSession.user.id;
+
+    const { data: rows, error } = await sb.from("profiles").select("*").eq("id", uid).limit(1);
+    if (!error && rows && rows[0]) {
+      applyDbProfile(rows[0]);
+      return true;
+    }
+
+    // First login: migrate localStorage profile into DB
+    const payload = {
+      id: uid,
+      nickname: profile.nickname,
+      elo: profile.elo | 0,
+      stars: profile.stars | 0,
+      matches: profile.matches | 0,
+      wins: profile.wins | 0,
+      owned_skins: Array.isArray(profile.ownedSkins) ? profile.ownedSkins : ["default"],
+      equipped_skin: String(profile.equippedSkin || "default"),
+    };
+    const { error: upErr } = await sb.from("profiles").insert(payload);
+    if (upErr) {
+      // In case row already exists (race), retry load once
+      const { data: rows2 } = await sb.from("profiles").select("*").eq("id", uid).limit(1);
+      if (rows2 && rows2[0]) applyDbProfile(rows2[0]);
+      return false;
+    }
+    return true;
   }
 
   function expectedScore(ra, rb) {
@@ -276,6 +383,130 @@
     if (lockerStars) lockerStars.textContent = String(profile.stars || 0) + " ⭐";
     if (achList) renderAchievements();
   }
+
+  // OTP UX: client-side 2 minute validity window
+  const OTP_TTL_MS = 2 * 60 * 1000;
+  let otpSentAt = 0;
+  let otpTimer = null;
+  function clearOtpTimer() {
+    try {
+      clearInterval(otpTimer);
+    } catch {
+      /* ignore */
+    }
+    otpTimer = null;
+  }
+  function otpRemainingMs() {
+    if (!otpSentAt) return 0;
+    const left = OTP_TTL_MS - (Date.now() - otpSentAt);
+    return Math.max(0, left);
+  }
+  function fmtMmSs(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    const m = (s / 60) | 0;
+    const ss = String(s % 60).padStart(2, "0");
+    return `${m}:${ss}`;
+  }
+  function setOtpUi() {
+    const rem = otpRemainingMs();
+    const expired = otpSentAt && rem <= 0;
+    if (btnAuthVerify) btnAuthVerify.disabled = !!expired;
+    if (authCode) authCode.disabled = !!expired;
+    if (expired) setAuthStatus("Код истёк (2 минуты). Нажми «Получить код» ещё раз.");
+  }
+
+  async function initSupabaseAuth() {
+    if (!hasSupabaseConfig()) {
+      setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL / ANON_KEY (см. supabase/README.md).");
+      return false;
+    }
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const { data } = await sb.auth.getSession();
+    sbSession = data?.session || null;
+
+    sb.auth.onAuthStateChange((_event, session) => {
+      sbSession = session || null;
+    });
+
+    if (!sbSession) {
+      setScreen("auth");
+      setAuthStatus("Введи email и получи код.");
+      setOtpUi();
+      return true;
+    }
+
+    await loadOrCreateDbProfile();
+    updateMenuUi();
+    setScreen("menu");
+    return true;
+  }
+
+  btnAuthSendCode?.addEventListener("click", async () => {
+    if (!sb) {
+      setAuthStatus("Supabase не готов.");
+      return;
+    }
+    const email = String(authEmail?.value || "").trim();
+    if (!email || !email.includes("@")) {
+      setAuthStatus("Введите корректный email.");
+      return;
+    }
+    setAuthStatus("Отправляю код…");
+    const { error } = await sb.auth.signInWithOtp({ email });
+    if (error) {
+      setAuthStatus("Ошибка: " + error.message);
+      return;
+    }
+    otpSentAt = Date.now();
+    clearOtpTimer();
+    otpTimer = setInterval(() => {
+      const rem = otpRemainingMs();
+      if (rem <= 0) {
+        clearOtpTimer();
+        setOtpUi();
+        return;
+      }
+      setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(rem)}. Введи 6 цифр.`);
+    }, 250);
+    if (btnAuthVerify) btnAuthVerify.disabled = false;
+    if (authCode) authCode.disabled = false;
+    setAuthStatus(`Код отправлен. Действует ещё ${fmtMmSs(OTP_TTL_MS)}. Введи 6 цифр.`);
+  });
+
+  btnAuthVerify?.addEventListener("click", async () => {
+    if (!sb) {
+      setAuthStatus("Supabase не готов.");
+      return;
+    }
+    if (otpSentAt && otpRemainingMs() <= 0) {
+      setOtpUi();
+      return;
+    }
+    const email = String(authEmail?.value || "").trim();
+    const token = String(authCode?.value || "").trim();
+    if (!email || !email.includes("@")) {
+      setAuthStatus("Введите email.");
+      return;
+    }
+    if (!/^\d{6}$/.test(token)) {
+      setAuthStatus("Код должен быть 6 цифр.");
+      return;
+    }
+    setAuthStatus("Проверяю код…");
+    const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
+    if (error) {
+      setAuthStatus("Ошибка: " + error.message);
+      return;
+    }
+    clearOtpTimer();
+    otpSentAt = 0;
+    const { data } = await sb.auth.getSession();
+    sbSession = data?.session || null;
+    await loadOrCreateDbProfile();
+    updateMenuUi();
+    setScreen("menu");
+  });
 
   function skinLabel(id) {
     return id === "gold" ? "ЗОЛОТОЙ" : "Обычный";
@@ -701,8 +932,8 @@
     const u = new URL(wsBackendBase());
     u.searchParams.set("room", room);
     u.searchParams.set("clientId", clientId);
-    u.searchParams.set("nick", profile.nickname || "Игрок");
-    u.searchParams.set("elo", String(profile.elo || 0));
+    const t = getAccessToken();
+    if (t) u.searchParams.set("token", t);
     return u.toString();
   }
 
@@ -710,8 +941,8 @@
     const u = new URL(wsBackendBase());
     // no room param => matchmaking connection
     u.searchParams.set("clientId", clientId);
-    u.searchParams.set("nick", profile.nickname || "Игрок");
-    u.searchParams.set("elo", String(profile.elo || 0));
+    const t = getAccessToken();
+    if (t) u.searchParams.set("token", t);
     return u.toString();
   }
 
@@ -719,16 +950,16 @@
     const u = new URL(base);
     u.searchParams.set("room", room);
     u.searchParams.set("clientId", clientId);
-    u.searchParams.set("nick", profile.nickname || "Игрок");
-    u.searchParams.set("elo", String(profile.elo || 0));
+    const t = getAccessToken();
+    if (t) u.searchParams.set("token", t);
     return u.toString();
   }
 
   function wsMmUrlForBase(base) {
     const u = new URL(base);
     u.searchParams.set("clientId", clientId);
-    u.searchParams.set("nick", profile.nickname || "Игрок");
-    u.searchParams.set("elo", String(profile.elo || 0));
+    const t = getAccessToken();
+    if (t) u.searchParams.set("token", t);
     return u.toString();
   }
 
@@ -1945,6 +2176,11 @@
   }
 
   function startPlayerSearch() {
+    if (!getAccessToken()) {
+      setAuthStatus("Войди по email, чтобы играть онлайн.");
+      setScreen("auth");
+      return;
+    }
     teardownMatchmaking();
     btnSearchPlayers && (btnSearchPlayers.disabled = true);
     btnSearchBots && (btnSearchBots.disabled = true);
@@ -2017,17 +2253,25 @@
   // init
   let profile = loadProfile();
   updateMenuUi();
-  const url0 = new URL(window.location.href);
-  const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
-  if (room0) {
-    // direct link opens waiting match automatically
-    setScreen("game");
-    overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${room0}</div>`;
-    overlay.classList.add("visible");
-    connectWs(room0);
-  } else {
-    setScreen("menu");
-  }
+  initSupabaseAuth().then(() => {
+    const url0 = new URL(window.location.href);
+    const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
+    if (room0) {
+      if (!getAccessToken()) {
+        setAuthStatus("Войди по email, чтобы открыть матч по ссылке.");
+        setScreen("auth");
+        return;
+      }
+      // direct link opens waiting match automatically
+      setScreen("game");
+      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent2)">Ссылка: ${room0}</div>`;
+      overlay.classList.add("visible");
+      connectWs(room0);
+    } else {
+      // initSupabaseAuth() sets auth/menu; this is a safe fallback
+      if (!screens.auth?.classList.contains("active")) setScreen("menu");
+    }
+  });
   requestAnimationFrame(step);
   } catch (e) {
     console.error("Ice Rush init failed:", e);
