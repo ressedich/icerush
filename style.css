@@ -547,6 +547,55 @@ body:not(.theme-dark) .input {
   color: var(--text-muted);
 }
 
+/* Chrome/Safari autofill может перекрашивать input в белый — фикс под нашу тему */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus,
+.input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text) !important;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-out 0s;
+  box-shadow: 0 0 0 1000px var(--surface-inset) inset !important;
+  border: 1px solid var(--line-panel) !important;
+}
+
+body:not(.theme-dark) .input:-webkit-autofill,
+body:not(.theme-dark) .input:-webkit-autofill:hover,
+body:not(.theme-dark) .input:-webkit-autofill:focus,
+body:not(.theme-dark) .input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text) !important;
+  box-shadow: 0 0 0 1000px #fff inset !important;
+}
+
+/* Nickpick: одна колонка, ровные кнопки */
+#nickpick .panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#nickpick .panel > .title,
+#nickpick .panel > .subtitle,
+#nickpick .panel > .card {
+  width: 100%;
+  max-width: var(--search-col);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+#nickpick .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+#nickpick .actions .btn {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
 /* Auth legacy */
 .auth-mode-row {
   display: flex;

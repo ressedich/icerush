@@ -1099,9 +1099,8 @@
     if (btnOpenMatch) btnOpenMatch.disabled = true;
   }
 
-  // Backend WebSocket URL (pin to your Deno Deploy Production URL).
-  // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush.ressedich.deno.net/ws";
+  // VPS WebSocket (PM2, PORT 8080). С сайта на HTTPS (Cloudflare Pages) браузер блокирует ws:// — тогда нужен wss:// на домене с TLS.
+  const WS_BACKEND_URL = "ws://159.194.198.164:8080/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
