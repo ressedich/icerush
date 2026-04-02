@@ -83,6 +83,7 @@
   const authStatus = document.getElementById("authStatus");
   const nickPickInput = document.getElementById("nickPickInput");
   const btnNickPickSave = document.getElementById("btnNickPickSave");
+  const btnBackFromNickPick = document.getElementById("btnBackFromNickPick");
   const nickPickStatus = document.getElementById("nickPickStatus");
   const navEloChip = document.getElementById("navEloChip");
   const menuElo = document.getElementById("menuElo");
@@ -103,6 +104,7 @@
   const searchFound = document.getElementById("searchFound");
   const btnSearchPlayers = document.getElementById("btnSearchPlayers");
   const btnSearchBots = document.getElementById("btnSearchBots");
+  const btnBackFromSearch = document.getElementById("btnBackFromSearch");
   const overlay = document.getElementById("overlay");
   const profNick = document.getElementById("profNick");
   const profElo = document.getElementById("profElo");
@@ -383,7 +385,56 @@
     return "Элитная лига";
   }
 
-  function setScreen(name) {
+  // Навигация между экранами (кнопки "Назад" + браузерный back)
+  const NAV_SCREENS = new Set(["auth", "nickpick", "menu", "search", "profile", "online", "kings", "shop", "locker", "game"]);
+  const nav = { stack: [], applyingPop: false };
+
+  function navReset(initial = "menu") {
+    nav.stack = [initial];
+    try {
+      history.replaceState({ screen: initial }, "", window.location.href);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function navPush(screen) {
+    if (!NAV_SCREENS.has(screen)) return;
+    if (nav.applyingPop) return;
+    if (nav.stack[nav.stack.length - 1] === screen) return;
+    nav.stack.push(screen);
+    try {
+      history.pushState({ screen }, "", window.location.href);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function goBack(fallback = "menu") {
+    if (nav.stack.length <= 1) {
+      setScreen(fallback, { push: true });
+      return;
+    }
+    nav.stack.pop();
+    const prev = nav.stack[nav.stack.length - 1] || fallback;
+    setScreen(prev, { push: false });
+  }
+
+  window.addEventListener("popstate", (e) => {
+    const s = e?.state?.screen;
+    if (!s || !NAV_SCREENS.has(s)) return;
+    nav.applyingPop = true;
+    try {
+      setScreen(s, { push: false });
+      // синхронизируем стек под текущее состояние браузера
+      if (!nav.stack.length || nav.stack[nav.stack.length - 1] !== s) nav.stack.push(s);
+    } finally {
+      nav.applyingPop = false;
+    }
+  });
+
+  function setScreen(name, opts) {
+    const push = opts && Object.prototype.hasOwnProperty.call(opts, "push") ? !!opts.push : true;
     Object.values(screens)
       .filter(Boolean)
       .forEach((el) => el.classList.remove("active"));
@@ -392,6 +443,7 @@
     // До завершения регистрации (вход + выбор ника) скрываем верхнюю панель,
     // чтобы не путала и не занимала место на мобиле.
     document.body.classList.toggle("hide-nav", name === "auth" || name === "nickpick");
+    if (push) navPush(name);
   }
 
   function randId(len = 10) {
@@ -502,7 +554,8 @@
   function afterSignedOutUi(message) {
     resetProfileAfterRemoteSignOut();
     teardownOnline();
-    setScreen("auth");
+    navReset("auth");
+    setScreen("auth", { push: false });
     resetAuthScreen();
     setAuthStatus(message);
     updateMenuUi();
@@ -601,7 +654,8 @@
   }
 
   async function initSupabaseAuth() {
-    setScreen("auth");
+    navReset("auth");
+    setScreen("auth", { push: false });
     resetAuthScreen();
     if (!hasSupabaseConfig()) {
       setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL и ANON_KEY (см. supabase/README.md).");
@@ -2175,7 +2229,8 @@
       overlay.classList.remove("visible");
       teardownOnline();
       clearRoomFromUrl();
-      setScreen("menu");
+      navReset("menu");
+      setScreen("menu", { push: false });
     };
     document.getElementById("btnResume").onclick = () => {
       overlay.classList.remove("visible");
@@ -2329,7 +2384,7 @@
     updateMenuUi();
   });
   btnBackFromProfile.addEventListener("click", () => {
-    setScreen("menu");
+    goBack("menu");
   });
 
   async function loadKings() {
@@ -2393,13 +2448,13 @@
     setScreen("kings");
     await loadKings();
   });
-  btnBackFromKings?.addEventListener("click", () => setScreen("menu"));
+  btnBackFromKings?.addEventListener("click", () => goBack("menu"));
 
   btnShop?.addEventListener("click", () => {
     updateMenuUi();
     setScreen("shop");
   });
-  btnBackFromShop?.addEventListener("click", () => setScreen("menu"));
+  btnBackFromShop?.addEventListener("click", () => goBack("menu"));
 
   btnBuyGold?.addEventListener("click", () => {
     ensureSkinInventory();
@@ -2416,7 +2471,7 @@
     renderLocker();
     setScreen("locker");
   });
-  btnBackFromLocker?.addEventListener("click", () => setScreen("menu"));
+  btnBackFromLocker?.addEventListener("click", () => goBack("menu"));
 
   function roomLink(code) {
     return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
@@ -2467,7 +2522,7 @@
 
   btnBackFromOnline?.addEventListener("click", () => {
     teardownOnline();
-    setScreen("menu");
+    goBack("menu");
   });
 
   btnOpenMatch?.addEventListener("click", async () => {
@@ -2645,6 +2700,30 @@
     // Lock cursor immediately on "start match" click
     requestGamePointerLock();
     startPlayerSearch();
+  });
+
+  btnBackFromSearch?.addEventListener("click", () => {
+    teardownMatchmaking();
+    try {
+      if (searchStatus) searchStatus.textContent = "—";
+      if (searchFound) searchFound.textContent = "";
+    } catch {
+      /* ignore */
+    }
+    goBack("menu");
+  });
+
+  btnBackFromNickPick?.addEventListener("click", async () => {
+    // Ник обязателен для онлайна, поэтому "назад" ведёт к выходу/экрану аккаунта.
+    try {
+      await sb?.auth?.signOut?.();
+    } catch {
+      /* ignore */
+    }
+    navReset("auth");
+    setScreen("auth", { push: false });
+    resetAuthScreen();
+    setAuthStatus("Нажми «Войти через Google».");
   });
 
   // init
