@@ -2051,51 +2051,47 @@
     const isLocal = s === getLocalStriker();
     const skin = isLocal ? String(profile.equippedSkin || "default") : "default";
     if (skin === "doodle") {
-      // Небрежный “рисованный” скин (как на референсе)
+      // Небрежный “рисованный” скин (по пользовательскому референсу: глаза + улыбка + язык)
       const cx = s.x;
       const cy = s.y;
       const r = STRIKER_R;
-      const wig = (k) => Math.sin((cx * 0.09 + cy * 0.07 + k) * 1.7) * 0.9;
+      const wig = (k) => Math.sin((cx * 0.075 + cy * 0.06 + k) * 1.55) * 0.75;
 
       ctx.save();
       // base face
       ctx.fillStyle = "#f2f2f2";
       ctx.beginPath();
-      ctx.arc(cx + wig(1), cy + wig(2), r - 1.2, 0, Math.PI * 2);
+      ctx.arc(cx + wig(1), cy + wig(2), r - 1.1, 0, Math.PI * 2);
       ctx.fill();
 
-      // thick outline (slightly wobbly by double-stroke)
-      ctx.strokeStyle = "#0a0a0a";
-      ctx.lineWidth = 3.5;
+      // thin outline
+      ctx.strokeStyle = "#0b0b0b";
+      ctx.lineWidth = 2.4;
       ctx.beginPath();
-      ctx.arc(cx + wig(3), cy + wig(4), r - 1.2, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(cx + wig(5) * 0.6, cy + wig(6) * 0.6, r - 0.9, 0, Math.PI * 2);
+      ctx.arc(cx + wig(3), cy + wig(4), r - 1.1, 0, Math.PI * 2);
       ctx.stroke();
 
       // eyes
       ctx.fillStyle = "#0b0b0b";
-      const ex = r * 0.35;
-      const ey = -r * 0.22;
+      const ex = r * 0.44;
+      const ey = -r * 0.28;
       ctx.beginPath();
-      ctx.arc(cx - ex + wig(7) * 0.4, cy + ey + wig(8) * 0.2, 5.3, 0, Math.PI * 2);
-      ctx.arc(cx + ex + wig(9) * 0.4, cy + ey + wig(10) * 0.2, 5.3, 0, Math.PI * 2);
+      ctx.arc(cx - ex + wig(7) * 0.35, cy + ey + wig(8) * 0.2, 6.2, 0, Math.PI * 2);
+      ctx.arc(cx + ex + wig(9) * 0.35, cy + ey + wig(10) * 0.2, 6.2, 0, Math.PI * 2);
       ctx.fill();
 
       // smile
       ctx.strokeStyle = "#0b0b0b";
-      ctx.lineWidth = 3.2;
+      ctx.lineWidth = 6.4;
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.arc(cx + wig(11) * 0.6, cy + r * 0.06 + wig(12) * 0.2, r * 0.46, 0.15 * Math.PI, 0.92 * Math.PI);
+      ctx.arc(cx + wig(11) * 0.35, cy + r * 0.14 + wig(12) * 0.18, r * 0.56, 0.14 * Math.PI, 0.90 * Math.PI);
       ctx.stroke();
 
       // tongue (red blob)
-      ctx.fillStyle = "#7e0f1b";
+      ctx.fillStyle = "#ff1b1b";
       ctx.beginPath();
-      ctx.ellipse(cx + r * 0.18 + wig(13) * 0.4, cy + r * 0.28 + wig(14) * 0.3, 9.5, 13.5, -0.25, 0, Math.PI * 2);
+      ctx.ellipse(cx + r * 0.36 + wig(13) * 0.35, cy + r * 0.34 + wig(14) * 0.25, 10.8, 14.8, -0.15, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       return;
