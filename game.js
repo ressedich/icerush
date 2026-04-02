@@ -3,6 +3,9 @@
   try {
 
   const PROFILE_KEY = "ice_rush_profile_v1";
+  // Привязка localStorage профиля к Supabase user.id, чтобы один Google всегда
+  // подхватывал один и тот же прогресс на любом устройстве.
+  const PROFILE_UID_KEY = "ice_rush_profile_uid_v1";
   const CLIENT_KEY = "ice_rush_client_id_v1";
 
   const canvas = document.getElementById("gameCanvas");
@@ -35,6 +38,13 @@
   setupCanvasResolution();
 
   // Device detection for layout (CSS: body.is-mobile) и бейдж ввода в HUD
+  function updateVhVar() {
+    // iOS Safari: vh/svh часто «прыгает» из-за адресной строки.
+    // Используем реальную innerHeight как основу для CSS.
+    const h = Math.max(1, Math.round(window.innerHeight || 0));
+    document.documentElement.style.setProperty("--app-vh", `${h * 0.01}px`);
+  }
+
   function updateDeviceClass() {
     const coarse =
       (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
@@ -43,10 +53,16 @@
     document.body.classList.toggle("is-mobile", isMobile);
     document.body.dataset.inputMode = coarse ? "touch" : "mouse";
   }
+  updateVhVar();
   updateDeviceClass();
   window.addEventListener("resize", () => {
+    updateVhVar();
     updateDeviceClass();
     setupCanvasResolution();
+  });
+  window.addEventListener("orientationchange", () => {
+    // небольшая задержка, чтобы iOS обновил innerHeight
+    setTimeout(() => updateVhVar(), 50);
   });
 
   const screens = {
@@ -242,6 +258,11 @@
     };
     const { error } = await sb.from("profiles").upsert(payload, { onConflict: "id" });
     if (error) return false;
+    try {
+      localStorage.setItem(PROFILE_UID_KEY, uid);
+    } catch {
+      /* ignore */
+    }
     return true;
   }
 
@@ -256,6 +277,11 @@
     profile.equippedSkin = typeof row.equipped_skin === "string" ? row.equipped_skin : profile.equippedSkin;
     ensureSkinInventory();
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    try {
+      if (row.id) localStorage.setItem(PROFILE_UID_KEY, String(row.id));
+    } catch {
+      /* ignore */
+    }
   }
 
   async function loadOrCreateDbProfile() {
@@ -440,6 +466,7 @@
   function resetProfileAfterRemoteSignOut() {
     try {
       localStorage.removeItem(PROFILE_KEY);
+      localStorage.removeItem(PROFILE_UID_KEY);
     } catch {
       /* ignore */
     }
@@ -477,6 +504,26 @@
       authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
       await sb.auth.signOut();
       return;
+    }
+    // Если пользователь вошёл в другой Google-аккаунт (или localStorage «переехал»),
+    // не смешиваем локальный профиль одного uid с другим.
+    try {
+      const prevUid = String(localStorage.getItem(PROFILE_UID_KEY) || "");
+      const curUid = String(sbSession.user.id || "");
+      if (curUid && prevUid && prevUid !== curUid) {
+        localStorage.removeItem(PROFILE_KEY);
+        // перезагрузим локальный профиль в "дефолт", потом поверх применим БД
+        const g = loadProfile();
+        profile.nickname = g.nickname;
+        profile.elo = g.elo;
+        profile.matches = g.matches;
+        profile.wins = g.wins;
+        profile.stars = g.stars;
+        profile.ownedSkins = g.ownedSkins;
+        profile.equippedSkin = g.equippedSkin;
+      }
+    } catch {
+      /* ignore */
     }
     await loadOrCreateDbProfile();
     updateMenuUi();

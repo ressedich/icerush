@@ -3,6 +3,7 @@
 :root {
   --panel-max: 460px;
   --search-col: 300px;
+  --app-vh: 1vh;
   /* База — антрацит, как стены кухни */
   --bg-void: #080808;
   --bg-deep: #0e0e0e;
@@ -647,8 +648,8 @@ body:not(.theme-dark).is-mobile .game-frame:hover {
 
 /* Матч: больше места под арену, без «обрезания» по высоте (iOS / Android) */
 body.game-active.is-mobile .shell {
-  min-height: 100dvh;
-  min-height: 100svh;
+  min-height: 100vh;
+  min-height: calc(var(--app-vh) * 100);
   padding-left: max(12px, env(safe-area-inset-left));
   padding-right: max(12px, env(safe-area-inset-right));
   padding-bottom: max(10px, env(safe-area-inset-bottom));
@@ -678,8 +679,8 @@ body.game-active.is-mobile #game.screen.active {
 
 /* Ширина по доступной высоте: арена целиком влезает в экран */
 body.game-active.is-mobile .game-frame {
-  width: min(calc(100vw - 20px), calc((100svh - 108px) * 880 / 520));
-  max-height: min(calc(100svh - 108px), calc((100vw - 20px) * 520 / 880));
+  width: min(calc(100vw - 20px), calc((calc(var(--app-vh) * 100) - 108px) * 880 / 520));
+  max-height: min(calc(calc(var(--app-vh) * 100) - 108px), calc((100vw - 20px) * 520 / 880));
 }
 
 body.game-active.is-mobile .top-nav {
