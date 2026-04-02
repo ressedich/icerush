@@ -505,6 +505,23 @@
       await sb.auth.signOut();
       return;
     }
+
+    // Убираем "Загрузка…" и не держим экран авторизации.
+    try {
+      setAuthStatus("");
+      if (btnAuthGoogle) btnAuthGoogle.disabled = true;
+    } catch {
+      /* ignore */
+    }
+
+    const url0 = new URL(window.location.href);
+    const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
+    // Если это обычный вход (без room), можно показать меню сразу и не ждать сеть.
+    if (!room0) {
+      setScreen("menu");
+      updateMenuUi();
+    }
+
     // Если пользователь вошёл в другой Google-аккаунт (или localStorage «переехал»),
     // не смешиваем локальный профиль одного uid с другим.
     try {
@@ -525,34 +542,54 @@
     } catch {
       /* ignore */
     }
-    await loadOrCreateDbProfile();
+
+    // Подтягиваем профиль из БД. Если сеть недоступна — останемся на локальном.
+    try {
+      await loadOrCreateDbProfile();
+    } catch {
+      /* ignore */
+    }
     updateMenuUi();
 
-    const url0 = new URL(window.location.href);
-    const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
     if (room0) {
       if (!getAccessToken()) {
         setAuthStatus("Войди через Google, чтобы открыть матч по ссылке.");
         setScreen("auth");
+        try {
+          if (btnAuthGoogle) btnAuthGoogle.disabled = false;
+        } catch {
+          /* ignore */
+        }
         return;
       }
       setScreen("game");
       overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent-2)">Ссылка: ${room0}</div>`;
       overlay.classList.add("visible");
       connectWs(room0);
+      try {
+        if (btnAuthGoogle) btnAuthGoogle.disabled = false;
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
     if (needsNickname()) await openNicknamePick();
     else setScreen("menu");
+    try {
+      if (btnAuthGoogle) btnAuthGoogle.disabled = false;
+    } catch {
+      /* ignore */
+    }
   }
 
   async function initSupabaseAuth() {
-    setScreen("auth");
     if (!hasSupabaseConfig()) {
+      setScreen("auth");
       setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL и ANON_KEY (см. supabase/README.md).");
       return false;
     }
+    // Не форсим экран auth: при наличии сессии сразу уйдём в меню/игру.
     setAuthStatus("Загрузка…");
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { flowType: "pkce", detectSessionInUrl: true },
@@ -970,7 +1007,7 @@
 
   // Backend WebSocket URL (pin to your Deno Deploy Production URL).
   // Example Production URL: https://icerush.ressedich.deno.net  => WS: wss://icerush.ressedich.deno.net/ws
-  const WS_BACKEND_URL = "wss://icerush-ws.onrender.com/ws";
+  const WS_BACKEND_URL = "wss://icerush.ressedich.deno.net/ws";
 
   function wsBackendBase() {
     const o = String(WS_BACKEND_URL || "").trim();
