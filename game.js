@@ -133,6 +133,7 @@
   const shopStars = document.getElementById("shopStars");
   const btnBackFromShop = document.getElementById("btnBackFromShop");
   const btnBuyGold = document.getElementById("btnBuyGold");
+  const btnBuyDoodle = document.getElementById("btnBuyDoodle");
   const lockerEquipped = document.getElementById("lockerEquipped");
   const lockerStars = document.getElementById("lockerStars");
   const lockerList = document.getElementById("lockerList");
@@ -721,7 +722,9 @@
   });
 
   function skinLabel(id) {
-    return id === "gold" ? "ЗОЛОТОЙ" : "Обычный";
+    if (id === "gold") return "ЗОЛОТОЙ";
+    if (id === "doodle") return "КАРАКУЛИ";
+    return "Обычный";
   }
 
   function ensureSkinInventory() {
@@ -2047,6 +2050,57 @@
     // Apply equipped skin (local striker only)
     const isLocal = s === getLocalStriker();
     const skin = isLocal ? String(profile.equippedSkin || "default") : "default";
+    if (skin === "doodle") {
+      // Небрежный “рисованный” скин (как на референсе)
+      const cx = s.x;
+      const cy = s.y;
+      const r = STRIKER_R;
+      const wig = (k) => Math.sin((cx * 0.09 + cy * 0.07 + k) * 1.7) * 0.9;
+
+      ctx.save();
+      // base face
+      ctx.fillStyle = "#f2f2f2";
+      ctx.beginPath();
+      ctx.arc(cx + wig(1), cy + wig(2), r - 1.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // thick outline (slightly wobbly by double-stroke)
+      ctx.strokeStyle = "#0a0a0a";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.arc(cx + wig(3), cy + wig(4), r - 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(cx + wig(5) * 0.6, cy + wig(6) * 0.6, r - 0.9, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // eyes
+      ctx.fillStyle = "#0b0b0b";
+      const ex = r * 0.35;
+      const ey = -r * 0.22;
+      ctx.beginPath();
+      ctx.arc(cx - ex + wig(7) * 0.4, cy + ey + wig(8) * 0.2, 5.3, 0, Math.PI * 2);
+      ctx.arc(cx + ex + wig(9) * 0.4, cy + ey + wig(10) * 0.2, 5.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // smile
+      ctx.strokeStyle = "#0b0b0b";
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(cx + wig(11) * 0.6, cy + r * 0.06 + wig(12) * 0.2, r * 0.46, 0.15 * Math.PI, 0.92 * Math.PI);
+      ctx.stroke();
+
+      // tongue (red blob)
+      ctx.fillStyle = "#7e0f1b";
+      ctx.beginPath();
+      ctx.ellipse(cx + r * 0.18 + wig(13) * 0.4, cy + r * 0.28 + wig(14) * 0.3, 9.5, 13.5, -0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
     const base = skin === "gold" ? "#d7a11b" : color;
     const hi = skin === "gold" ? "#ffe08a" : color === "#b83d4a" ? "#ff8b8b" : "#a8c4e8";
 
@@ -2399,13 +2453,9 @@
       return;
     }
     try {
-      const { count, error: countErr } = await sb.from("profiles").select("*", { count: "exact", head: true });
-      if (kingsCount) kingsCount.textContent = countErr || count == null ? "—" : String(count);
-
       const { data, error } = await sb
         .from("profiles")
         .select("nickname, elo, stars")
-        .order("stars", { ascending: false })
         .order("elo", { ascending: false })
         .limit(3);
 
@@ -2422,6 +2472,7 @@
       }
 
       const top = Array.isArray(data) ? data : [];
+      if (kingsCount) kingsCount.textContent = String(top.length || 0);
       if (!top.length) {
         const li = document.createElement("li");
         li.textContent = "В базе пока нет профилей.";
@@ -2462,6 +2513,16 @@
     if ((profile.stars || 0) < 20) return;
     profile.stars -= 20;
     profile.ownedSkins.push("gold");
+    saveProfile();
+    updateMenuUi();
+  });
+
+  btnBuyDoodle?.addEventListener("click", () => {
+    ensureSkinInventory();
+    if (profile.ownedSkins.includes("doodle")) return;
+    if ((profile.stars || 0) < 25) return;
+    profile.stars -= 25;
+    profile.ownedSkins.push("doodle");
     saveProfile();
     updateMenuUi();
   });
