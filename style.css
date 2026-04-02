@@ -220,6 +220,19 @@ body.is-mobile .shell {
   position: relative;
 }
 
+/* На экранах входа/регистрации шапка не нужна */
+body.hide-nav .top-nav {
+  display: none;
+}
+
+body.hide-nav .shell {
+  gap: 0;
+}
+
+body.hide-nav .main-flow {
+  padding-top: 0;
+}
+
 .top-nav-end {
   display: flex;
   align-items: center;

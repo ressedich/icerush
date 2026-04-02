@@ -389,6 +389,9 @@
       .forEach((el) => el.classList.remove("active"));
     if (screens[name]) screens[name].classList.add("active");
     document.body.classList.toggle("game-active", name === "game");
+    // До завершения регистрации (вход + выбор ника) скрываем верхнюю панель,
+    // чтобы не путала и не занимала место на мобиле.
+    document.body.classList.toggle("hide-nav", name === "auth" || name === "nickpick");
   }
 
   function randId(len = 10) {
