@@ -46,6 +46,12 @@
       img.src = "./img/doodle.png?v=7";
       return img;
     })(),
+    squarents: (() => {
+      const img = new Image();
+      img.decoding = "async";
+      img.src = "./img/squarents.png?v=7";
+      return img;
+    })(),
   };
 
   // Device detection for layout (CSS: body.is-mobile) и бейдж ввода в HUD
@@ -145,6 +151,7 @@
   const btnBackFromShop = document.getElementById("btnBackFromShop");
   const btnBuyGold = document.getElementById("btnBuyGold");
   const btnBuyDoodle = document.getElementById("btnBuyDoodle");
+  const btnBuySquarents = document.getElementById("btnBuySquarents");
   const lockerEquipped = document.getElementById("lockerEquipped");
   const lockerStars = document.getElementById("lockerStars");
   const lockerList = document.getElementById("lockerList");
@@ -735,6 +742,7 @@
   function skinLabel(id) {
     if (id === "gold") return "ЗОЛОТОЙ";
     if (id === "doodle") return "КАРАКУЛИ";
+    if (id === "squarents") return "КВАДРОБОБ";
     return "Обычный";
   }
 
@@ -1693,10 +1701,24 @@
     if (sp < 28 && dp < 1.2 && (nw.nearWall || nw.nearCorner)) stuckT += dt;
     else stuckT = Math.max(0, stuckT - dt * 1.5);
 
-    // choose mode
-    if (stuckT > 0.35) aiMode = "unstuck";
-    else if (puck.x < W / 2 - 24) aiMode = "defend";
-    else aiMode = "attack";
+    // choose mode (чуть более “живой” бот: иногда защищается, иногда давит)
+    if (stuckT > 0.35) {
+      aiMode = "unstuck";
+    } else {
+      const puckLeftHalf = puck.x < W / 2 - 24; // шайба на стороне игрока
+      const puckRightHalf = puck.x > W / 2 + 18; // шайба на стороне бота
+      const fast = sp > 320;
+      // вероятность обороны выше, когда шайба не у бота
+      const defendProb = puckLeftHalf ? (fast ? 0.78 : 0.62) : 0.22;
+      // не переключаемся каждый кадр
+      if (aiModeT > 0.28) {
+        aiModeT = 0;
+        const roll = Math.random();
+        if (puckRightHalf) aiMode = "attack";
+        else if (roll < defendProb) aiMode = "defend";
+        else aiMode = "attack";
+      }
+    }
 
     // target computation
     let tx = puck.x + puck.vx * 0.16;
@@ -1742,12 +1764,16 @@
     }
 
     if (aiMode === "defend") {
-      tx = W / 2 + 86;
-      ty = puck.y * 0.55 + (H / 2) * 0.45;
-      // if puck enters AI half fast, step up
-      if (puck.x > W / 2 + 12 || sp > 220) {
-        tx = behindX;
-        ty = behindY;
+      // базовая стойка у своих ворот (перекрывать линию броска)
+      const gx = inner.right - STRIKER_R - 18;
+      tx = gx;
+      // больше следим по Y, но не идеально (чтобы не выглядел читерским)
+      const jitter = (Math.random() - 0.5) * 18;
+      ty = clamp(puck.y + jitter, inner.top + STRIKER_R + 10, inner.bottom - STRIKER_R - 10);
+      // иногда “шаг вперёд” если шайба приближается или очень быстрая
+      if (puck.x > W / 2 + 24 || sp > 260) {
+        tx = clamp(behindX, W / 2 + 34, inner.right - STRIKER_R - 10);
+        ty = clamp(behindY, inner.top + STRIKER_R + 8, inner.bottom - STRIKER_R - 8);
       }
     } else if (aiMode === "unstuck") {
       // go to a side of puck and sweep it out to center
@@ -1789,7 +1815,9 @@
     // агрессия: когда игрок сильно двигается или шайба быстрая — бот ускоряется
     const playerAgg = Math.min(1, Math.hypot(player.vx, player.vy) / 850);
     const puckAgg = Math.min(1, puckSpeed() / 650);
-    const aggr = 1 + 0.55 * Math.max(playerAgg, puckAgg);
+    // доп. ускорение в атаке, чтобы бот не “всегда проигрывал”
+    const atkBoost = aiMode === "attack" ? 0.22 + Math.min(0.28, sp / 2200) : 0;
+    const aggr = 1 + (0.55 + atkBoost) * Math.max(playerAgg, puckAgg);
     const dx = tx - ai.x;
     const dy = ty - ai.y;
     const d = Math.hypot(dx, dy) || 1;
@@ -2061,6 +2089,38 @@
     // Apply equipped skin (local striker only)
     const isLocal = s === getLocalStriker();
     const skin = isLocal ? String(profile.equippedSkin || "default") : "default";
+    if (skin === "squarents") {
+      const img = skinImg.squarents;
+      const cx = s.x;
+      const cy = s.y;
+      const r = STRIKER_R;
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r - 1.2, 0, Math.PI * 2);
+        ctx.clip();
+        const size = (r - 1.2) * 2;
+        ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+        ctx.restore();
+        ctx.strokeStyle = "rgba(10,10,10,0.85)";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r - 1.2, 0, Math.PI * 2);
+        ctx.stroke();
+        return;
+      }
+      // fallback
+      ctx.save();
+      ctx.fillStyle = "#f2f2f2";
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 1.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0b0b0b";
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (skin === "doodle") {
       // Пользовательский PNG-скин: img/doodle.png (клип по кругу)
       const img = skinImg.doodle;
@@ -2520,6 +2580,16 @@
     if ((profile.stars || 0) < 25) return;
     profile.stars -= 25;
     profile.ownedSkins.push("doodle");
+    saveProfile();
+    updateMenuUi();
+  });
+
+  btnBuySquarents?.addEventListener("click", () => {
+    ensureSkinInventory();
+    if (profile.ownedSkins.includes("squarents")) return;
+    if ((profile.stars || 0) < 30) return;
+    profile.stars -= 30;
+    profile.ownedSkins.push("squarents");
     saveProfile();
     updateMenuUi();
   });
