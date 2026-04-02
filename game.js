@@ -225,6 +225,22 @@
     if (nickPickStatus) nickPickStatus.textContent = String(txt || "");
   }
 
+  function withTimeout(promise, ms, label = "timeout") {
+    const t = Math.max(250, ms | 0);
+    return new Promise((resolve, reject) => {
+      const id = setTimeout(() => reject(new Error(label)), t);
+      Promise.resolve(promise)
+        .then((v) => {
+          clearTimeout(id);
+          resolve(v);
+        })
+        .catch((e) => {
+          clearTimeout(id);
+          reject(e);
+        });
+    });
+  }
+
   function getAccessToken() {
     return (sbSession && sbSession.access_token) || "";
   }
@@ -491,101 +507,100 @@
 
   async function routeAfterSession() {
     if (!sb) return;
-    const { data } = await sb.auth.getSession();
-    sbSession = data?.session || null;
-    if (!sbSession) {
-      setScreen("auth");
-      resetAuthScreen();
-      setAuthStatus("Нажми «Войти через Google».");
-      return;
-    }
-    const { data: userData, error: userErr } = await sb.auth.getUser();
-    if (userErr || !userData?.user) {
-      authSignOutStatusOverride = "Аккаунт удалён или сессия недействительна. Войди снова.";
-      await sb.auth.signOut();
-      return;
-    }
-
-    // Убираем "Загрузка…" и не держим экран авторизации.
     try {
-      setAuthStatus("");
-      if (btnAuthGoogle) btnAuthGoogle.disabled = true;
-    } catch {
-      /* ignore */
-    }
+      const { data } = await withTimeout(sb.auth.getSession(), 8000, "getSession timeout");
+      sbSession = data?.session || null;
+      if (!sbSession) {
+        setScreen("auth");
+        resetAuthScreen();
+        setAuthStatus("Нажми «Войти через Google».");
+        return;
+      }
+      const { data: userData, error: userErr } = await withTimeout(sb.auth.getUser(), 9000, "getUser timeout");
+      if (userErr || !userData?.user) {
+        authSignOutStatusOverride = "Сессия недействительна. Войди снова.";
+        await sb.auth.signOut();
+        return;
+      }
 
-    const url0 = new URL(window.location.href);
-    const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
-    // Если это обычный вход (без room), можно показать меню сразу и не ждать сеть.
-    if (!room0) {
-      setScreen("menu");
-      updateMenuUi();
-    }
+      // Убираем "Загрузка…" и не держим экран авторизации.
+      setAuthStatus("");
+
+      const url0 = new URL(window.location.href);
+      const room0 = (url0.searchParams.get("room") || "").trim().toUpperCase().slice(0, 12);
+      // Если это обычный вход (без room), показываем меню сразу и не ждём БД/сеть.
+      if (!room0) {
+        setScreen("menu");
+        updateMenuUi();
+      }
 
     // Если пользователь вошёл в другой Google-аккаунт (или localStorage «переехал»),
     // не смешиваем локальный профиль одного uid с другим.
-    try {
-      const prevUid = String(localStorage.getItem(PROFILE_UID_KEY) || "");
-      const curUid = String(sbSession.user.id || "");
-      if (curUid && prevUid && prevUid !== curUid) {
-        localStorage.removeItem(PROFILE_KEY);
-        // перезагрузим локальный профиль в "дефолт", потом поверх применим БД
-        const g = loadProfile();
-        profile.nickname = g.nickname;
-        profile.elo = g.elo;
-        profile.matches = g.matches;
-        profile.wins = g.wins;
-        profile.stars = g.stars;
-        profile.ownedSkins = g.ownedSkins;
-        profile.equippedSkin = g.equippedSkin;
-      }
-    } catch {
-      /* ignore */
-    }
-
-    // Подтягиваем профиль из БД. Если сеть недоступна — останемся на локальном.
-    try {
-      await loadOrCreateDbProfile();
-    } catch {
-      /* ignore */
-    }
-    updateMenuUi();
-
-    if (room0) {
-      if (!getAccessToken()) {
-        setAuthStatus("Войди через Google, чтобы открыть матч по ссылке.");
-        setScreen("auth");
-        try {
-          if (btnAuthGoogle) btnAuthGoogle.disabled = false;
-        } catch {
-          /* ignore */
+      try {
+        const prevUid = String(localStorage.getItem(PROFILE_UID_KEY) || "");
+        const curUid = String(sbSession.user.id || "");
+        if (curUid && prevUid && prevUid !== curUid) {
+          localStorage.removeItem(PROFILE_KEY);
+          // перезагрузим локальный профиль в "дефолт", потом поверх применим БД
+          const g = loadProfile();
+          profile.nickname = g.nickname;
+          profile.elo = g.elo;
+          profile.matches = g.matches;
+          profile.wins = g.wins;
+          profile.stars = g.stars;
+          profile.ownedSkins = g.ownedSkins;
+          profile.equippedSkin = g.equippedSkin;
         }
+      } catch {
+        /* ignore */
+      }
+
+      // Подтягиваем профиль из БД. Если сеть недоступна — останемся на локальном.
+      try {
+        await withTimeout(loadOrCreateDbProfile(), 9000, "profile load timeout");
+      } catch {
+        /* ignore */
+      }
+      updateMenuUi();
+
+      if (room0) {
+        if (!getAccessToken()) {
+          setAuthStatus("Войди через Google, чтобы открыть матч по ссылке.");
+          setScreen("auth");
+          return;
+        }
+        setScreen("game");
+        overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent-2)">Ссылка: ${room0}</div>`;
+        overlay.classList.add("visible");
+        connectWs(room0);
         return;
       }
-      setScreen("game");
-      overlay.innerHTML = `<div>Ожидание игрока…</div><div style="font-size:0.95rem;font-weight:800;color:var(--accent-2)">Ссылка: ${room0}</div>`;
-      overlay.classList.add("visible");
-      connectWs(room0);
+
+      if (needsNickname()) await openNicknamePick();
+      else setScreen("menu");
+    } catch (e) {
+      // Любая ошибка/таймаут — возвращаем пользователя на экран входа с нормальным сообщением.
+      setScreen("auth");
+      resetAuthScreen();
+      setAuthStatus("Ошибка авторизации. Обнови страницу или войди через Google ещё раз.");
+      try {
+        console.error("routeAfterSession failed:", e);
+      } catch {
+        /* ignore */
+      }
+    } finally {
       try {
         if (btnAuthGoogle) btnAuthGoogle.disabled = false;
       } catch {
         /* ignore */
       }
-      return;
-    }
-
-    if (needsNickname()) await openNicknamePick();
-    else setScreen("menu");
-    try {
-      if (btnAuthGoogle) btnAuthGoogle.disabled = false;
-    } catch {
-      /* ignore */
     }
   }
 
   async function initSupabaseAuth() {
+    setScreen("auth");
+    resetAuthScreen();
     if (!hasSupabaseConfig()) {
-      setScreen("auth");
       setAuthStatus("Supabase не настроен. Заполни window.__ICE_RUSH_SUPABASE_URL и ANON_KEY (см. supabase/README.md).");
       return false;
     }
