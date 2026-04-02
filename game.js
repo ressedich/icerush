@@ -37,6 +37,17 @@
   }
   setupCanvasResolution();
 
+  // --- Skins (image-based) ---
+  const skinImg = {
+    doodle: (() => {
+      const img = new Image();
+      img.decoding = "async";
+      // cache-bust для CDN/браузера
+      img.src = "./img/doodle.png?v=7";
+      return img;
+    })(),
+  };
+
   // Device detection for layout (CSS: body.is-mobile) и бейдж ввода в HUD
   function updateVhVar() {
     // iOS Safari: vh/svh часто «прыгает» из-за адресной строки.
@@ -2051,48 +2062,38 @@
     const isLocal = s === getLocalStriker();
     const skin = isLocal ? String(profile.equippedSkin || "default") : "default";
     if (skin === "doodle") {
-      // Небрежный “рисованный” скин (по пользовательскому референсу: глаза + улыбка + язык)
+      // Пользовательский PNG-скин: img/doodle.png (клип по кругу)
+      const img = skinImg.doodle;
       const cx = s.x;
       const cy = s.y;
       const r = STRIKER_R;
-      const wig = (k) => Math.sin((cx * 0.075 + cy * 0.06 + k) * 1.55) * 0.75;
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r - 1.2, 0, Math.PI * 2);
+        ctx.clip();
+        const size = (r - 1.2) * 2;
+        ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+        ctx.restore();
 
+        // обводка, чтобы на льду читалось
+        ctx.strokeStyle = "rgba(10,10,10,0.9)";
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r - 1.2, 0, Math.PI * 2);
+        ctx.stroke();
+        return;
+      }
+
+      // fallback если PNG ещё не загрузился
       ctx.save();
-      // base face
       ctx.fillStyle = "#f2f2f2";
       ctx.beginPath();
-      ctx.arc(cx + wig(1), cy + wig(2), r - 1.1, 0, Math.PI * 2);
+      ctx.arc(cx, cy, r - 1.1, 0, Math.PI * 2);
       ctx.fill();
-
-      // thin outline
       ctx.strokeStyle = "#0b0b0b";
       ctx.lineWidth = 2.4;
-      ctx.beginPath();
-      ctx.arc(cx + wig(3), cy + wig(4), r - 1.1, 0, Math.PI * 2);
       ctx.stroke();
-
-      // eyes
-      ctx.fillStyle = "#0b0b0b";
-      const ex = r * 0.44;
-      const ey = -r * 0.28;
-      ctx.beginPath();
-      ctx.arc(cx - ex + wig(7) * 0.35, cy + ey + wig(8) * 0.2, 6.2, 0, Math.PI * 2);
-      ctx.arc(cx + ex + wig(9) * 0.35, cy + ey + wig(10) * 0.2, 6.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // smile
-      ctx.strokeStyle = "#0b0b0b";
-      ctx.lineWidth = 6.4;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.arc(cx + wig(11) * 0.35, cy + r * 0.14 + wig(12) * 0.18, r * 0.56, 0.14 * Math.PI, 0.90 * Math.PI);
-      ctx.stroke();
-
-      // tongue (red blob)
-      ctx.fillStyle = "#ff1b1b";
-      ctx.beginPath();
-      ctx.ellipse(cx + r * 0.36 + wig(13) * 0.35, cy + r * 0.34 + wig(14) * 0.25, 10.8, 14.8, -0.15, 0, Math.PI * 2);
-      ctx.fill();
       ctx.restore();
       return;
     }
